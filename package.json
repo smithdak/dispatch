@@ -1,0 +1,32 @@
+{
+  "name": "dispatch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal control plane for durable agentic work sessions",
+  "type": "module",
+  "bin": {
+    "dsp": "./src/cli/main.ts"
+  },
+  "engines": {
+    "bun": "1.3.14"
+  },
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "dsp": "bun run src/cli/main.ts",
+    "hook": "bun run src/hook/main.ts",
+    "test": "bun test",
+    "test:unit": "bun test test/unit",
+    "test:integration": "bun test test/integration",
+    "test:contract": "bun test test/contract",
+    "typecheck": "tsc --noEmit",
+    "check:boundaries": "bun run scripts/check-boundaries.ts",
+    "check": "bun run typecheck && bun run check:boundaries && bun test",
+    "build": "bun run scripts/build.ts --host",
+    "build:matrix": "bun run scripts/build.ts --matrix",
+    "probe": "bun run scripts/probe.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "typescript": "7.0.2"
+  }
+}

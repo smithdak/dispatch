@@ -1,0 +1,8 @@
+{
+  "session_id": 42,
+  "cwd": "",
+  "permission_mode": "unrestricted",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": "not-an-object"
+}

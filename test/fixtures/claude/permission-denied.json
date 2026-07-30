@@ -1,0 +1,14 @@
+{
+  "session_id": "claude-session-001",
+  "transcript_path": "/tmp/claude/session-001.jsonl",
+  "cwd": "/workspace/repo",
+  "permission_mode": "auto",
+  "hook_event_name": "PermissionDenied",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "PRIVATE_DENIED_COMMAND_DO_NOT_RECORD",
+    "description": "Clean build directory"
+  },
+  "tool_use_id": "toolu_003",
+  "reason": "Blocked by classifier"
+}

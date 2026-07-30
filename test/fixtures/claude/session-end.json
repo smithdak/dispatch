@@ -1,0 +1,7 @@
+{
+  "session_id": "claude-session-001",
+  "transcript_path": "/tmp/claude/session-001.jsonl",
+  "cwd": "/workspace/repo",
+  "hook_event_name": "SessionEnd",
+  "reason": "other"
+}

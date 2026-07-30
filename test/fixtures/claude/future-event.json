@@ -1,0 +1,14 @@
+{
+  "session_id": "claude-session-001",
+  "transcript_path": "/tmp/claude/session-001.jsonl",
+  "cwd": "/workspace/repo",
+  "permission_mode": "default",
+  "hook_event_name": "FutureLifecycleEvent",
+  "future_state": "waiting",
+  "future_counter": 7,
+  "future_flag": true,
+  "future_message": "PRIVATE_FUTURE_MESSAGE_DO_NOT_RECORD",
+  "command": "PRIVATE_COMMAND_DO_NOT_RECORD",
+  "query": "PRIVATE_QUERY_DO_NOT_RECORD",
+  "stdout": "PRIVATE_STDOUT_DO_NOT_RECORD"
+}

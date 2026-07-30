@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["bun"]
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
+}

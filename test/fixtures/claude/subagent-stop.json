@@ -1,0 +1,12 @@
+{
+  "session_id": "claude-session-001",
+  "transcript_path": "/tmp/claude/session-001.jsonl",
+  "cwd": "/workspace/repo",
+  "permission_mode": "default",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_id": "agent-abc123",
+  "agent_type": "Explore",
+  "agent_transcript_path": "/tmp/claude/session-001/subagents/agent-abc123.jsonl",
+  "last_assistant_message": "PRIVATE_SUBAGENT_MESSAGE_DO_NOT_RECORD"
+}
