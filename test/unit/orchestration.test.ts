@@ -24,7 +24,7 @@ import {
 } from "../../src/application/session-meta";
 import { createSortableId } from "../../src/core/identity";
 import { JsonlLedger } from "../../src/core/ledger";
-import { resolveDispatchPaths } from "../../src/core/paths";
+import { physicalPath, resolveDispatchPaths } from "../../src/core/paths";
 import {
   MuxError,
   type MuxCapabilities,
@@ -208,7 +208,7 @@ describe("terminal session orchestration", () => {
     expect(mux.ensureRequests).toEqual([
       {
         logicalKey: meta.sid,
-        canonicalCwd: meta.worktreePath,
+        canonicalCwd: physicalPath(meta.worktreePath),
         environment: { DISPATCH_SESSION_ID: meta.sid },
       },
     ]);
@@ -449,7 +449,7 @@ describe("terminal session orchestration", () => {
     expect(mux.discoveryRequests).toEqual([
       {
         logicalKey: meta.sid,
-        canonicalCwd: meta.worktreePath,
+        canonicalCwd: physicalPath(meta.worktreePath),
       },
     ]);
     expect(mux.closeTargets).toEqual([muxTarget]);
