@@ -1,4 +1,4 @@
-# Stage 0 qualification evidence
+# Qualification evidence
 
 Qualification records keep three evidence classes separate:
 
@@ -62,3 +62,35 @@ post-repair result still misses the architecture's original `<50 ms` process-lev
 target; cold start and durable hook append also miss their original targets. Stage 0 is
 therefore a functional pass with a documented performance exception, not a performance
 pass.
+
+## Stage 1 native Windows lifecycle
+
+`scripts/qualify-windows-mux.ts` drives separate compiled `dsp.exe` processes and one
+explicit absolute `herdr.exe`. Every Dispatch child receives that same Herdr path through
+`DISPATCH_HERDR_BIN`; the evidence hashes both executables before and after the run.
+
+The harness reports one of four profiles: `open_status`, `external_recovery`,
+`terminal_close`, or `full_lifecycle`. A generic `pass` means only that the selected
+profile passed. `completeLifecycle: true` is possible only for `full_lifecycle`, which
+requires both `--exercise-external-close` and `--close`, a fresh Dispatch session whose
+preflight is `created` / `not_recorded`, protocol `18`, initial create-and-record,
+idempotent cross-process open/status, recovery to a wholly new generation after an
+external Herdr close, terminal close, and confirmed operator-focus restoration.
+
+Run the full profile only against a disposable session:
+
+```powershell
+$created = .\dist\dsp.exe new "Stage 1 qualification" --repo (Get-Location).Path --json |
+  ConvertFrom-Json
+bun run scripts/qualify-windows-mux.ts --binary .\dist\dsp.exe `
+  --herdr "C:\absolute\path\to\herdr.exe" --sid $created.sid `
+  --exercise-external-close --close `
+  --output (Join-Path $env:TEMP "dispatch-stage1-windows.json")
+.\dist\dsp.exe remove $created.sid
+```
+
+Raw harness output retains local absolute paths and the disposable SID. Sanitize those
+fields before committing evidence. The proof is native lifecycle evidence, not restart,
+prompt-privacy, or daily-driver evidence. Herdr has no atomic snapshot fence between the
+adapter's full-generation preflight and its subsequent workspace-ID close, so closed-ID
+reuse stress remains an explicit alpha gate.

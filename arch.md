@@ -1,16 +1,17 @@
-# Dispatch — Architecture Specification v0.2
+# Dispatch — Architecture Specification v0.3
 
-**Revision scope:** supersedes v0.1's positioning. v0.1 specced a supervisor beside
-existing tools. v0.2 specs a tool that **owns** the worktree and session lifecycle, having
-established that the adjacent tools (workmux, herdr) do not cover the durable-history or
-provisioning gaps. Stack and scaffolding rules from v0.1 survive; scope, subsystems, and
-sequencing are rewritten.
+**Revision scope:** preserves v0.2's full-ownership thesis, records the qualified Stage 0
+prerelease, and resolves the native Windows mux decision in favor of a bounded Herdr
+adapter. Dispatch still owns worktrees, session identity, policy, and durable history;
+Herdr owns terminal rendering and retained terminal processes.
 
-**Spec date:** 2026-07-30
+**Spec date:** 2026-07-31
 **Targets:** Windows x64 primary; Linux x64 secondary. macOS deferred pending path
 canonicalization. This target amendment and the Stage 1 mux reset are recorded in
-[`ADR 0002`](docs/decisions/0002-windows-primary-target.md).
-**As-of basis:** version pins verified 2026-07-30. See Appendix A.
+[`ADR 0002`](docs/decisions/0002-windows-primary-target.md); the backend decision and
+receipt model are recorded in
+[`ADR 0003`](docs/decisions/0003-herdr-windows-orchestration.md).
+**As-of basis:** version pins verified 2026-07-31. See Appendix A.
 **Working name:** `dispatch`, binary `dsp`. Unresolved — see O2.
 
 ---
@@ -30,7 +31,7 @@ and imitates them everywhere else.**
 | Worktree provisioning | Copy (slow) or symlink (fast, breaks on divergence) | Copy-on-write clone: fast _and_ divergence-safe     |
 | Worktree lifecycle    | Solved well by workmux                              | Imitate — its README is a de-facto requirements doc |
 | Mux orchestration     | Solved well by workmux/tmux                         | Imitate                                             |
-| Agent state           | Solved via hooks (workmux) or heuristics (herdr)    | Imitate the hook approach; it is the accurate one   |
+| Agent state           | Hooks plus structured integrations/detection        | Keep provider hooks authoritative for history       |
 | Diff review           | Solved well by hunk / tuicr                         | Delegate — hand off, never rebuild                  |
 
 Everything in rows 3–6 is deliberate reimplementation of known-good design, not invention.
@@ -50,8 +51,9 @@ requalified.
   are the source of truth. The SQLite index, status views, and any cache are derived and
   must be fully rebuildable by replay. Deleting a projection is never data loss.
 
-- **I2 — No daemon.** No long-lived supervisor. Hooks are short-lived processes that
-  append and exit. The CLI is invoked and exits. Nothing to install as a service.
+- **I2 — No Dispatch daemon.** No long-lived Dispatch supervisor. Hooks are short-lived
+  processes that append and exit. The CLI is invoked and exits. A replaceable mux adapter
+  may address an independently owned retained-terminal service.
 
 - **I3 — Structured ingestion only.** Agent state comes from hooks or SDK callbacks —
   never from parsing terminal output. If a provider offers no structured surface, it gets
@@ -93,7 +95,7 @@ Unchanged from v0.1 except where the new scope adds a row.
 | Config                     | TOML via Bun's native import     | Bun-native           | yaml, cosmiconfig      |
 | Tests                      | `bun:test`                       | Bun-native           | vitest                 |
 | Claude headless (optional) | `@anthropic-ai/claude-agent-sdk` | `0.3.220`            | subprocess parsing     |
-| Multiplexer                | Platform port; backend open      | Stage 1 decision     | hard-coded tmux        |
+| Multiplexer                | Herdr CLI through platform port  | protocol `18`        | hard-coded tmux        |
 | Diff review                | `hunk` or `tuicr` (external)     | see O1               | building a review UI   |
 
 **Performance note, stated honestly.** Bun is not the fast choice; it is the maintainable
@@ -129,7 +131,7 @@ through the session rather than through path guessing:
 | ---------- | ----------------------------- | --------- |
 | Worktree   | absolute path                 | Dispatch  |
 | Branch     | git ref                       | Dispatch  |
-| Mux target | tmux `session:window`         | Dispatch  |
+| Mux target | versioned backend receipt     | Dispatch  |
 | Review     | `hunk --repo <worktree>`      | delegated |
 | Ledger     | `sessions/<sid>/events.jsonl` | Dispatch  |
 
@@ -294,7 +296,7 @@ dispatch/
 │   │   ├── agent.ts             #   hook ingestion + optional headless drive
 │   │   └── review.ts            #   open a review against a worktree
 │   ├── adapters/
-│   │   ├── mux-windows/         #   selected through O7 before Stage 1 build
+│   │   ├── mux-windows/         #   Herdr protocol-18 adapter; replaceable
 │   │   ├── tmux/                #   optional Linux importer of tmux specifics
 │   │   ├── hooks/               #   per-provider hook installers + translators
 │   │   ├── claude-sdk/          #   only importer of the Agent SDK; optional
@@ -328,7 +330,7 @@ Ordered to reach daily-driver status fastest, because an undogfooded tool gets a
 | Stage | Scope                                                                        | Exit threshold                                                                                 |
 | ----- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | **0** | Identity, worktree lifecycle, ledger, hook ingestion for Claude Code, CLI    | Create, list, merge, remove from commands; events land; `dsp log <sid>` replays a real session |
-| **1** | Native Windows orchestration: layouts, panes, prompt injection, status        | Replaces the current Windows session launcher in daily use — this is the dogfood gate          |
+| **1** | Native Windows orchestration: lifecycle, layouts, panes, private prompt, status | Replaces the current Windows session launcher in daily use — lifecycle alone does not pass it |
 | **2** | Provisioning engine: strategy ladder, template cache                         | Measured sub-second warm provision on APFS; honest degradation on ext4                         |
 | **3** | Review handoff, `outcome.recorded`, query CLI, agent history skill           | An agent can query prior attempts and act on the answer                                        |
 | **4** | Batch: worker pool, `--max-concurrent`, matrix prompts                       | Sequential and parallel task batches run unattended                                            |
@@ -349,7 +351,7 @@ ledger (reassess Stages 0–1 entirely); any provider breaks its hook contract.
 | **O4** | Headless execution: SDK-driven or hook-observed only | Hooks for v1; add the SDK path only if unattended runs need permission callbacks                                                                  | Stage 4 experience                                                                                                            | Medium                           |
 | **O5** | Config merge semantics for global vs project         | Copy workmux's two-level model and its `"<global>"` include token; it is proven                                                                   | Stage 1                                                                                                                       | Low                              |
 | **O6** | Schema evolution policy                              | New kinds bump `v`; new `data` fields do not; readers ignore unknown `data` fields and reject unknown envelope fields                             | Before Stage 0 ships                                                                                                          | Medium                           |
-| **O7** | Native Windows mux backend                           | Define the port first; select by a focused Windows Terminal, ConPTY, WezTerm, and existing-cockpit spike rather than assuming tmux                | Before Stage 1 implementation                                                                                                | **High** — daily-driver gate     |
+| **O7** | Native Windows mux backend                           | **Resolved:** Herdr first, with WezTerm as the fallback; see ADR 0003                                                                             | Lifecycle slice selected 2026-07-31; full Stage 1 qualification remains open                                                 | **High** — daily-driver gate     |
 
 O3 is the only item that can invalidate a thesis. Resolve it before Stage 2, not during.
 
@@ -384,7 +386,7 @@ Verified 2026-07-30 unless noted.
 | Agent SDK latest                                        | `0.3.220`                                                                     | High                     |
 | Agent SDK supports `bun build --compile` via `/extract` | Documented in CHANGELOG                                                       | High                     |
 | workmux                                                 | MIT, Rust, v0.1.211, 1,913 commits; hook-based agent status; no event ledger  | High                     |
-| herdr                                                   | AGPL/commercial dual, Rust, v0.7.1; heuristic agent status; background server | High                     |
+| Herdr                                                   | Apache-2.0, Rust; local `0.7.5-preview.2026-07-29-44b3adb12552`, protocol `18`; structured socket/CLI control and detached server | High — local + upstream 2026-07-31 |
 | hunk                                                    | Built on OpenTUI; loopback daemon; `hunk session`; `--repo` targeting         | Moderate                 |
 | tuicr                                                   | MIT, Rust, `0.19.1`; JSON session store; `tuicr review` CLI                   | Moderate                 |
 | APFS `clonefile` / Linux `cp --reflink`                 | Stable OS facts                                                               | High                     |
@@ -399,6 +401,7 @@ Verified 2026-07-30 unless noted.
 | ---------------------------- | ------------------------------------------- | ----------------------- |
 | Provider hook payload shapes | `adapters/hooks/<provider>/`                | One directory each      |
 | Claude SDK API               | `adapters/claude-sdk/`                      | One directory, optional |
+| Herdr CLI/protocol behavior  | `adapters/mux-windows/`                     | One directory           |
 | tmux CLI behavior            | `adapters/tmux/`                            | One directory           |
 | Review tool interface        | `adapters/review-*/`                        | One directory           |
 | Filesystem clone syscalls    | `core/provision/`                           | One module              |
@@ -407,6 +410,6 @@ Verified 2026-07-30 unless noted.
 
 ---
 
-_v0.2 — full-ownership scope locked. Next revision: CLI command surface and the tmux
-adapter contract, written against Stage 0–1 implementation experience rather than ahead
-of it._
+_v0.3 — Stage 0 released; Herdr selected for the first native Windows lifecycle slice.
+The full Stage 1 dogfood gate remains open until private prompt delivery, restart
+resilience, and sustained daily use are proved._

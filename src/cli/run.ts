@@ -6,6 +6,11 @@ import type { Environment } from "../core/paths";
 import { diagnose } from "../application/doctor";
 import { installClaudeHooks } from "../application/hook-settings";
 import {
+  closeTerminalSession,
+  openTerminalSession,
+  terminalSessionStatus,
+} from "../application/orchestration";
+import {
   createSession,
   listSessions,
   mergeSession,
@@ -13,6 +18,7 @@ import {
   removeSession,
   sessionLog,
 } from "../application/sessions";
+import { MuxError, type MuxPort } from "../ports/mux";
 import {
   booleanOption,
   integerOption,
@@ -22,7 +28,7 @@ import {
   UsageError,
 } from "./args";
 
-export const DISPATCH_VERSION = "0.1.0";
+export const DISPATCH_VERSION = "0.2.0-alpha.1";
 
 const HELP = `Dispatch — durable agentic work sessions
 
@@ -32,9 +38,12 @@ Usage:
   dsp log <sid> [--kind <kind>] [--limit <n>] [--json]
   dsp merge <sid> [--json]
   dsp remove <sid> [--force] [--json]
+  dsp open <sid> [--json]
+  dsp status <sid> [--json]
+  dsp close <sid> [--json]
   dsp reindex [--json]
   dsp hooks install claude [--project <path>] [--command <path>] [--json]
-  dsp doctor [--json]
+  dsp doctor [--stage1] [--json]
   dsp --version
 
 Hook installation defaults to Claude user scope (~/.claude/settings.json).
@@ -199,6 +208,71 @@ async function runRemove(args: readonly string[]): Promise<void> {
   else console.log(`${result.meta.sid}\tremoved\t${result.value.worktreePath}`);
 }
 
+async function runOpen(
+  args: readonly string[],
+  loadMux: () => Promise<MuxPort>,
+  env: Environment,
+): Promise<void> {
+  const parsed = parseArguments(args, { json: { type: "boolean" } });
+  requirePositionals(parsed, 1, 1, "dsp open <sid> [--json]");
+  const result = await openTerminalSession(
+    parsed.positionals[0]!,
+    await loadMux(),
+    { env },
+  );
+  reportProjectionWarnings(result.projectionWarnings);
+  if (booleanOption(parsed, "json")) {
+    printJson(result);
+    return;
+  }
+  console.log(
+    `${result.sid}\topened\t${result.disposition}\t${result.target.workspaceId}`,
+  );
+}
+
+async function runStatus(
+  args: readonly string[],
+  loadMux: () => Promise<MuxPort>,
+  env: Environment,
+): Promise<void> {
+  const parsed = parseArguments(args, { json: { type: "boolean" } });
+  requirePositionals(parsed, 1, 1, "dsp status <sid> [--json]");
+  const result = await terminalSessionStatus(
+    parsed.positionals[0]!,
+    await loadMux(),
+    { env },
+  );
+  if (booleanOption(parsed, "json")) {
+    printJson(result);
+    return;
+  }
+  console.log(
+    `${result.sid}\t${result.dispatchLifecycle}\t${result.muxStatus.state}\t${result.target?.workspaceId ?? "-"}`,
+  );
+}
+
+async function runClose(
+  args: readonly string[],
+  loadMux: () => Promise<MuxPort>,
+  env: Environment,
+): Promise<void> {
+  const parsed = parseArguments(args, { json: { type: "boolean" } });
+  requirePositionals(parsed, 1, 1, "dsp close <sid> [--json]");
+  const result = await closeTerminalSession(
+    parsed.positionals[0]!,
+    await loadMux(),
+    { env },
+  );
+  reportProjectionWarnings(result.projectionWarnings);
+  if (booleanOption(parsed, "json")) {
+    printJson(result);
+    return;
+  }
+  console.log(
+    `${result.sid}\tclosed\t${result.muxOutcome}\t${result.target?.workspaceId ?? "-"}`,
+  );
+}
+
 async function runReindex(args: readonly string[]): Promise<void> {
   const parsed = parseArguments(args, { json: { type: "boolean" } });
   requirePositionals(parsed, 0, 0, "dsp reindex [--json]");
@@ -257,8 +331,11 @@ async function runHookInstall(
 }
 
 async function runDoctor(args: readonly string[]): Promise<number> {
-  const parsed = parseArguments(args, { json: { type: "boolean" } });
-  requirePositionals(parsed, 0, 0, "dsp doctor [--json]");
+  const parsed = parseArguments(args, {
+    stage1: { type: "boolean" },
+    json: { type: "boolean" },
+  });
+  requirePositionals(parsed, 0, 0, "dsp doctor [--stage1] [--json]");
   const report = await diagnose();
   if (booleanOption(parsed, "json")) printJson(report);
   else {
@@ -266,7 +343,13 @@ async function runDoctor(args: readonly string[]): Promise<number> {
       console.log(`${check.status.toUpperCase()}\t${check.name}\t${check.detail}`);
     }
   }
-  return report.readyForStage0 ? 0 : 1;
+  return (
+    booleanOption(parsed, "stage1")
+      ? report.readyForStage1
+      : report.readyForStage0
+  )
+    ? 0
+    : 1;
 }
 
 export async function runCli(
@@ -274,6 +357,7 @@ export async function runCli(
   runtime: {
     readonly env?: Environment;
     readonly stdout?: (value: string) => void;
+    readonly mux?: MuxPort;
   } = {},
 ): Promise<number> {
   if (args.length === 0 || args[0] === "--help" || args[0] === "help") {
@@ -286,6 +370,11 @@ export async function runCli(
   }
 
   try {
+    const orchestrationMux = async (): Promise<MuxPort> => {
+      if (runtime.mux) return runtime.mux;
+      const { loadMuxPort } = await import("../adapters/registry");
+      return loadMuxPort(runtime.env ?? process.env);
+    };
     switch (args[0]) {
       case "new":
         await runNew(args.slice(1));
@@ -301,6 +390,27 @@ export async function runCli(
         return 0;
       case "remove":
         await runRemove(args.slice(1));
+        return 0;
+      case "open":
+        await runOpen(
+          args.slice(1),
+          orchestrationMux,
+          runtime.env ?? process.env,
+        );
+        return 0;
+      case "status":
+        await runStatus(
+          args.slice(1),
+          orchestrationMux,
+          runtime.env ?? process.env,
+        );
+        return 0;
+      case "close":
+        await runClose(
+          args.slice(1),
+          orchestrationMux,
+          runtime.env ?? process.env,
+        );
         return 0;
       case "reindex":
         await runReindex(args.slice(1));
@@ -326,6 +436,10 @@ export async function runCli(
       console.error(`${error.code}: ${error.message}`);
       if (error.stderr) console.error(error.stderr);
       return 4;
+    }
+    if (error instanceof MuxError) {
+      console.error(`mux.${error.code}: ${error.message}`);
+      return 5;
     }
     if (error instanceof DispatchError) {
       console.error(`${error.code}: ${error.message}`);

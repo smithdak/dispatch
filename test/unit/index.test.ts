@@ -101,6 +101,86 @@ describe("derived session index", () => {
     }
   });
 
+  test("projects mux receipts and preserves them across metadata upserts", () => {
+    const { index, session, event } = fixture();
+    const target = {
+      version: 1,
+      backend: "herdr",
+      protocol: 18,
+      workspaceId: "w-test",
+      tabId: "w-test:t1",
+      paneId: "w-test:p1",
+      terminalId: "term_test",
+      canonicalCwd: session.worktreePath,
+    };
+    const opened: CanonicalEvent = {
+      ...event,
+      id: createSortableId({
+        timestamp: 1_700_000_000_002,
+        randomBytes: () => new Uint8Array(16).fill(3),
+      }),
+      seq: 2,
+      kind: "session.opened",
+      data: { muxTarget: target, action: "created" },
+    };
+
+    try {
+      index.upsertSession(session);
+      index.projectEvent(event);
+      index.projectEvent(opened);
+
+      expect(JSON.parse(index.getSession(session.sid)?.muxTarget ?? "null"))
+        .toEqual(target);
+
+      index.upsertSession(session);
+      expect(JSON.parse(index.getSession(session.sid)?.muxTarget ?? "null"))
+        .toEqual(target);
+
+      index.rebuild([{ session, events: [event, opened] }]);
+      expect(JSON.parse(index.getSession(session.sid)?.muxTarget ?? "null"))
+        .toEqual(target);
+    } finally {
+      index.close();
+    }
+  });
+
+  test("rebuilds a mux target discovered only during terminal close", () => {
+    const { index, session, event } = fixture();
+    const target = {
+      version: 1,
+      backend: "herdr",
+      protocol: 18,
+      workspaceId: "w-close",
+      tabId: "w-close:t1",
+      paneId: "w-close:p1",
+      terminalId: "term_close",
+      canonicalCwd: session.worktreePath,
+    };
+    const closed: CanonicalEvent = {
+      ...event,
+      id: createSortableId({
+        timestamp: 1_700_000_000_002,
+        randomBytes: () => new Uint8Array(16).fill(3),
+      }),
+      seq: 2,
+      kind: "session.closed",
+      data: {
+        reason: "terminal-closed",
+        muxOutcome: "closed",
+        muxTarget: target,
+      },
+    };
+
+    try {
+      index.rebuild([{ session, events: [event, closed] }]);
+      expect(JSON.parse(index.getSession(session.sid)?.muxTarget ?? "null"))
+        .toEqual(target);
+      expect(index.getSession(session.sid)?.status).toBe("closed");
+    } finally {
+      index.close();
+    }
+  });
+
   test("resolves a reused path to the newest non-removed generation", () => {
     const { index, session, event } = fixture();
     const removed: CanonicalEvent = {

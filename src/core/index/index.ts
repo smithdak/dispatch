@@ -269,7 +269,7 @@ export class SessionIndex {
           branch = excluded.branch,
           base_branch = excluded.base_branch,
           created_at = excluded.created_at,
-          mux_target = excluded.mux_target
+          mux_target = COALESCE(excluded.mux_target, sessions.mux_target)
       `,
       session.sid,
       session.mid,
@@ -355,6 +355,25 @@ export class SessionIndex {
         numeric(data.turnCount, { integer: true }),
         event.sid,
       );
+    }
+
+    if (
+      event.kind === "session.opened" ||
+      event.kind === "session.closed"
+    ) {
+      const data = event.data as Record<string, unknown>;
+      const target = data.muxTarget;
+      if (
+        typeof target === "object" &&
+        target !== null &&
+        !Array.isArray(target)
+      ) {
+        this.#run(
+          "UPDATE sessions SET mux_target = ? WHERE sid = ?",
+          JSON.stringify(target),
+          event.sid,
+        );
+      }
     }
   }
 
