@@ -41,3 +41,24 @@ does not invent a release statistic.
 Use `--binary`, `--iterations`, `--warmup`, and `--sessions` to change the fixture. A
 query run with any session count other than 500 deliberately receives no comparison to
 the architecture's 500-session target.
+
+## Retained 2026-07-31 evidence
+
+- [`stage0-windows-2026-07-31.json`](stage0-windows-2026-07-31.json) is the
+  clean-source, pinned-Bun baseline before the query-path repair. Its 500-session median
+  was `2821.357 ms` because every normal list operation opened all 500 ledger tails.
+- [`stage0-windows-post-query-2026-07-31.json`](stage0-windows-post-query-2026-07-31.json)
+  measures the projection-fast implementation. Its 500-session median was `96.869 ms`,
+  a `29.12x` reduction; authoritative O(session count) reconciliation remains available
+  through `dsp ls --verify`.
+- [`stage0-live-claude-windows-2026-07-31.json`](stage0-live-claude-windows-2026-07-31.json)
+  retains the sanitized real-provider receipt. It records the installed binary digest,
+  provider version and result, canonical hook event sequence, and clean worktree cleanup
+  without retaining the prompt or provider transcript.
+
+Both performance runs used Bun `1.3.14` for the harness and embedded binary in the same
+Codex-managed Windows environment. They did not flush operating-system caches. The
+post-repair result still misses the architecture's original `<50 ms` process-level query
+target; cold start and durable hook append also miss their original targets. Stage 0 is
+therefore a functional pass with a documented performance exception, not a performance
+pass.

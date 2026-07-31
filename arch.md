@@ -256,13 +256,20 @@ Targets, to be measured rather than assumed. Wide error bars until the spike lan
 | ------------------------------------------------------ | -------------------- | ------------------------ |
 | `dsp new` → usable worktree, warm template, reflink FS | < 1 s                | 30–120 s (`npm install`) |
 | `dsp new`, cold template                               | install time + < 1 s | same                     |
-| CLI cold start                                         | < 25 ms              | —                        |
-| `dsp ls`, 500 sessions                                 | < 50 ms              | —                        |
-| Hook append                                            | < 5 ms               | —                        |
+| CLI cold start                                         | < 25 ms              | 57.885 ms median; 61.450 ms p95 |
+| `dsp ls`, 500 sessions                                 | < 50 ms              | 96.869 ms median; 103.018 ms p95 |
+| Hook append                                            | < 5 ms               | 91.606 ms median; 97.217 ms p95 |
 
-**This section is the highest-risk part of the spec** and is gated by a spike before any
-code is written against it — see O3. ext4 has no reflink support, which is the common
-Linux case and forces a graceful, honest degradation rather than a silent one.
+The Stage 0 process-level measurements above were recorded on native Windows x64 with
+the pinned Bun `1.3.14` harness and compiled runtime after five warm-ups across 30
+samples. They miss every original target; the 500-session result follows a `29.12x`
+median repair from the initial O(session count) ledger-tail scan. Raw samples and method
+limits are retained under [`docs/qualification`](docs/qualification/README.md).
+
+**The provisioning portion of this section is the highest-risk part of the spec** and is
+gated by a spike before any Stage 2 code is written against it — see O3. ext4 has no
+reflink support, which is the common Linux case and forces a graceful, honest degradation
+rather than a silent one.
 
 ---
 
@@ -383,7 +390,8 @@ Verified 2026-07-30 unless noted.
 | APFS `clonefile` / Linux `cp --reflink`                 | Stable OS facts                                                               | High                     |
 | ext4 lacks reflink                                      | Stable                                                                        | High                     |
 | XFS / bcachefs / ZFS clone behavior                     | **Unverified**                                                                | **None — O3**            |
-| All §5 performance targets                              | **Estimates, unmeasured**                                                     | Low                      |
+| Stage 0 process-level performance targets              | Measured on Windows x64; all missed, retained evidence linked above          | High                     |
+| Stage 2 provisioning performance targets               | **Estimates, unmeasured**                                                     | Low                      |
 
 ### Volatility isolation
 
