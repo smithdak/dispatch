@@ -129,9 +129,8 @@ describe("dispatch paths", () => {
 
     if (process.platform !== "win32") {
       const trailingBackslash = join(root, "valid-backslash\\");
-      mkdirSync(trailingBackslash);
       expect(physicalPath(trailingBackslash)).toBe(
-        realpathSync.native(trailingBackslash),
+        join(realpathSync.native(root), "valid-backslash\\"),
       );
     }
   });
