@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse, sep } from "node:path";
 
 import { loadConfig } from "../../src/core/config";
 import {
   ensureMachineId,
   pathKey,
+  physicalPath,
   resolveDispatchPaths,
 } from "../../src/core/paths";
 
@@ -85,6 +93,47 @@ describe("dispatch paths", () => {
     if (process.platform !== "win32") return;
     const root = temporaryDirectory();
     expect(pathKey(root.toUpperCase())).toBe(pathKey(root.toLowerCase()));
+  });
+
+  test("canonicalizes aliases before retaining missing descendants", () => {
+    const root = temporaryDirectory();
+    const target = join(root, "physical-root");
+    const alias = join(root, "path-alias");
+    mkdirSync(target);
+    symlinkSync(
+      target,
+      alias,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const expected = join(
+      realpathSync.native(target),
+      "future",
+      "worktree",
+    );
+    const throughAlias = join(alias, "future", "worktree");
+    expect(physicalPath(throughAlias)).toBe(expected);
+    expect(pathKey(throughAlias)).toBe(pathKey(expected));
+  });
+
+  test("preserves roots and valid platform-specific path characters", () => {
+    const root = temporaryDirectory();
+    const platformRoot = parse(root).root;
+    expect(physicalPath(platformRoot)).toBe(platformRoot);
+
+    const directory = join(root, "trailing-separator");
+    mkdirSync(directory);
+    expect(physicalPath(`${directory}${sep}`)).toBe(
+      realpathSync.native(directory),
+    );
+
+    if (process.platform !== "win32") {
+      const trailingBackslash = join(root, "valid-backslash\\");
+      mkdirSync(trailingBackslash);
+      expect(physicalPath(trailingBackslash)).toBe(
+        realpathSync.native(trailingBackslash),
+      );
+    }
   });
 });
 

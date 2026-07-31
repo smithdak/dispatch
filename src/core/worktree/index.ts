@@ -1,5 +1,4 @@
 import { lstat } from "node:fs/promises";
-import { resolve } from "node:path";
 
 import {
   normalizeInputPath,
@@ -73,7 +72,11 @@ async function repositoryTopLevelAt(
       stderr: topLevelOutput.stderr.trim(),
     });
   }
-  const topLevel = resolve(topLevelText);
+  const topLevel = normalizeInputPath(
+    topLevelText,
+    operation,
+    "repository top-level",
+  );
   return topLevel;
 }
 
@@ -194,7 +197,11 @@ async function commonGitDirectory(
     `Could not resolve Git common directory for ${repositoryPath}`,
   );
 
-  return resolve(output.stdout.trim());
+  return normalizeInputPath(
+    output.stdout.trim(),
+    operation,
+    "Git common directory",
+  );
 }
 
 async function isClean(

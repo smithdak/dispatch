@@ -16,6 +16,7 @@ import {
   isAbsolute,
   join,
   normalize,
+  parse,
   resolve,
   sep,
 } from "node:path";
@@ -213,7 +214,14 @@ export function expandPath(value: string, env: Environment = process.env): strin
   return isAbsolute(value) ? normalize(value) : resolve(value);
 }
 
-export function pathKey(value: string): string {
+/**
+ * Resolve a path to one case-preserving physical identity.
+ *
+ * Missing descendants are retained beneath the deepest existing ancestor so
+ * planned worktree destinations canonicalize 8.3 names, junctions, and
+ * symlinks before they are created.
+ */
+export function physicalPath(value: string): string {
   const absolute = resolve(value);
   let candidate = absolute;
   const missingSegments: string[] = [];
@@ -242,11 +250,19 @@ export function pathKey(value: string): string {
     }
   }
 
-  const normalized = normalize(join(physical, ...missingSegments)).replace(
-    /[\\/]+$/,
-    "",
-  );
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  const normalized = normalize(join(physical, ...missingSegments));
+  const trailingSeparators = process.platform === "win32"
+    ? /[\\/]+$/
+    : /\/+$/;
+  const withoutTrailingSeparators = normalized === parse(normalized).root
+    ? normalized
+    : normalized.replace(trailingSeparators, "");
+  return withoutTrailingSeparators;
+}
+
+export function pathKey(value: string): string {
+  const physical = physicalPath(value);
+  return process.platform === "win32" ? physical.toLowerCase() : physical;
 }
 
 export function sessionDirectory(paths: DispatchPaths, sid: string): string {

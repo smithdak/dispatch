@@ -1,5 +1,4 @@
-import { resolve } from "node:path";
-
+import { pathKey, physicalPath } from "../paths";
 import {
   WorktreeError,
   type WorktreeErrorCode,
@@ -34,7 +33,7 @@ export function normalizeInputPath(
     });
   }
 
-  return resolve(input);
+  return physicalPath(input);
 }
 
 export async function runGit(
@@ -166,12 +165,5 @@ export async function validateBranchName(
 }
 
 export function samePath(left: string, right: string): boolean {
-  const normalizedLeft = resolve(left);
-  const normalizedRight = resolve(right);
-  if (process.platform === "win32") {
-    return normalizedLeft.toLocaleLowerCase("en-US") ===
-      normalizedRight.toLocaleLowerCase("en-US");
-  }
-
-  return normalizedLeft === normalizedRight;
+  return pathKey(left) === pathKey(right);
 }

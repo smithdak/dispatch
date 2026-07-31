@@ -4,12 +4,13 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  realpath,
   rename,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import {
   WorktreeError,
@@ -23,6 +24,8 @@ import {
 interface Fixture {
   readonly root: string;
   readonly repositoryPath: string;
+  readonly physicalRoot: string;
+  readonly physicalRepositoryPath: string;
 }
 
 const fixtureRoots: string[] = [];
@@ -74,7 +77,12 @@ async function createFixture(): Promise<Fixture> {
   await git(repositoryPath, ["add", "--", "README.md"]);
   await git(repositoryPath, ["commit", "-m", "initial"]);
 
-  return { root, repositoryPath };
+  return {
+    root,
+    repositoryPath,
+    physicalRoot: await realpath(root),
+    physicalRepositoryPath: await realpath(repositoryPath),
+  };
 }
 
 async function expectWorktreeError(
@@ -106,7 +114,7 @@ describe("git worktree boundary", () => {
       const fixture = await createFixture();
       const discovery = await discoverRepository(fixture.repositoryPath);
       expect(discovery).toEqual({
-        topLevel: resolve(fixture.repositoryPath),
+        topLevel: fixture.physicalRepositoryPath,
         branch: "main",
       });
 
@@ -117,8 +125,8 @@ describe("git worktree boundary", () => {
         baseRef: "main",
       });
       expect(created).toMatchObject({
-        repositoryPath: resolve(fixture.repositoryPath),
-        worktreePath: resolve(join(fixture.root, "--session-worktree")),
+        repositoryPath: fixture.physicalRepositoryPath,
+        worktreePath: join(fixture.physicalRoot, "--session-worktree"),
         branch: "session/complete",
         baseRef: "main",
         baseBranch: "main",
@@ -148,8 +156,8 @@ describe("git worktree boundary", () => {
         force: false,
       });
       expect(removed).toEqual({
-        repositoryPath: resolve(fixture.repositoryPath),
-        worktreePath: resolve(created.worktreePath),
+        repositoryPath: fixture.physicalRepositoryPath,
+        worktreePath: join(fixture.physicalRoot, "--session-worktree"),
         forced: false,
         wasDirty: false,
         alreadyAbsent: false,
@@ -189,7 +197,7 @@ describe("git worktree boundary", () => {
         toCommit,
       });
       expect(summary).toEqual({
-        repositoryPath: resolve(fixture.repositoryPath),
+        repositoryPath: fixture.physicalRepositoryPath,
         files: 3,
         insertions: 2,
         deletions: 0,
@@ -215,7 +223,7 @@ describe("git worktree boundary", () => {
       expect(syntaxError).toMatchObject({
         operation: "diff",
         code: "INVALID_OBJECT_ID",
-        path: resolve(fixture.repositoryPath),
+        path: fixture.physicalRepositoryPath,
         argv: [],
       });
 
@@ -233,7 +241,7 @@ describe("git worktree boundary", () => {
       expect(objectError).toMatchObject({
         operation: "diff",
         code: "OBJECT_NOT_COMMIT",
-        path: resolve(fixture.repositoryPath),
+        path: fixture.physicalRepositoryPath,
       });
       expect(objectError.argv.at(-1)).toBe(`${blob}^{commit}`);
     },
@@ -263,12 +271,12 @@ describe("git worktree boundary", () => {
       expect(error).toMatchObject({
         operation: "merge",
         code: "PRIMARY_DIRTY",
-        path: resolve(fixture.repositoryPath),
+        path: fixture.physicalRepositoryPath,
       });
       expect(error.argv).toEqual([
         "git",
         "-C",
-        resolve(fixture.repositoryPath),
+        fixture.physicalRepositoryPath,
         "status",
         "--porcelain=v1",
         "--untracked-files=normal",
@@ -303,7 +311,7 @@ describe("git worktree boundary", () => {
       expect(error).toMatchObject({
         operation: "merge",
         code: "WORKTREE_DIRTY",
-        path: resolve(created.worktreePath),
+        path: join(fixture.physicalRoot, "dirty-session-merge"),
       });
     },
     GIT_TEST_TIMEOUT_MS,
@@ -332,7 +340,7 @@ describe("git worktree boundary", () => {
       expect(error).toMatchObject({
         operation: "merge",
         code: "PRIMARY_BRANCH_MISMATCH",
-        path: resolve(fixture.repositoryPath),
+        path: fixture.physicalRepositoryPath,
       });
     },
     GIT_TEST_TIMEOUT_MS,
@@ -361,7 +369,7 @@ describe("git worktree boundary", () => {
       expect(error).toMatchObject({
         operation: "remove",
         code: "WORKTREE_DIRTY",
-        path: resolve(created.worktreePath),
+        path: join(fixture.physicalRoot, "dirty-session"),
       });
 
       const removed = await removeWorktree({
@@ -399,7 +407,7 @@ describe("git worktree boundary", () => {
       expect(error).toMatchObject({
         operation: "remove",
         code: "SESSION_BRANCH_MISMATCH",
-        path: resolve(created.worktreePath),
+        path: join(fixture.physicalRoot, "branch-owned-session"),
       });
       expect(existsSync(created.worktreePath)).toBeTrue();
     },
@@ -422,7 +430,7 @@ describe("git worktree boundary", () => {
       expect(branchError).toMatchObject({
         operation: "create",
         code: "INVALID_BRANCH",
-        path: resolve(fixture.repositoryPath),
+        path: fixture.physicalRepositoryPath,
       });
 
       const refError = await expectWorktreeError(
@@ -436,7 +444,7 @@ describe("git worktree boundary", () => {
       expect(refError).toMatchObject({
         operation: "create",
         code: "INVALID_REF",
-        path: resolve(fixture.repositoryPath),
+        path: fixture.physicalRepositoryPath,
       });
     },
     GIT_TEST_TIMEOUT_MS,

@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   unlink,
   writeFile,
@@ -166,11 +167,11 @@ test.serial(
 
     try {
       const repositoryPath = await createRepository(root);
+      const physicalRoot = await realpath(root);
+      const physicalRepositoryPath = await realpath(repositoryPath);
       const initialCommit = await git(repositoryPath, ["rev-parse", "HEAD"]);
       const paths = resolveDispatchPaths(process.env);
-      const configuredWorktreeRoot = resolve(
-        process.env.DISPATCH_WORKTREE_ROOT!,
-      );
+      const configuredWorktreeRoot = join(physicalRoot, "session-worktrees");
 
       expect(paths.stateDir).toBe(resolve(root, "dispatch-state"));
       expect(paths.configDir).toBe(resolve(root, "xdg-config", "dispatch"));
@@ -186,7 +187,7 @@ test.serial(
       expect(created.value).toEqual(created.meta);
       expect(created.meta).toMatchObject({
         v: 1,
-        repositoryPath: resolve(repositoryPath),
+        repositoryPath: physicalRepositoryPath,
         branch: `dispatch-e2e/stage-0-lifecycle-${created.meta.sid}`,
         baseBranch: "main",
         baseCommit: initialCommit,
@@ -321,7 +322,7 @@ test.serial(
         "index projection failed",
       );
       expect(merged.value).toMatchObject({
-        repositoryPath: resolve(repositoryPath),
+        repositoryPath: physicalRepositoryPath,
         worktreePath: created.meta.worktreePath,
         sessionBranch: created.meta.branch,
         baseBranch: "main",
@@ -384,7 +385,7 @@ test.serial(
         "index projection failed",
       );
       expect(removed.value).toEqual({
-        repositoryPath: resolve(repositoryPath),
+        repositoryPath: physicalRepositoryPath,
         worktreePath: created.meta.worktreePath,
         forced: false,
         wasDirty: false,
