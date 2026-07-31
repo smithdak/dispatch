@@ -100,3 +100,12 @@ is the sanitized `full_lifecycle` receipt for clean source commit `fff1f98`. It 
 local compiled candidate and exact Herdr client by SHA-256, retains the two-generation
 external-close recovery sequence, and records focus/worktree/branch cleanup. It is not a
 downloaded release-artifact, restart/resume, prompt, or daily-driver receipt.
+
+[`stage1-release-runtime-evidence-004c0adf.json`](stage1-release-runtime-evidence-004c0adf.json)
+is the sanitized receipt for the exact Windows artifact downloaded from successful main
+[CI run 30671133260](https://github.com/smithdak/dispatch/actions/runs/30671133260)
+at commit `004c0ad`. Those same bytes are attached to the
+[`v0.2.0-alpha.1` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.1).
+The receipt does not close the prompt, restart/resume, concurrent focus-change,
+closed-workspace ID reuse, atomic snapshot fence, abrupt harness termination, or
+sustained daily-driver gates.

@@ -297,7 +297,13 @@ use.
   that remain unknown after a fresh snapshot and one safe retry.
 - GitHub runners exercise the adapter against structured fakes, not an interactive Herdr
   server. Native compiled qualification and retained evidence are separate gates.
-- The clean local `v0.2.0-alpha.1` candidate at source commit `fff1f98` passed the native
-  `full_lifecycle` Herdr profile. The sanitized receipt is retained in
-  [`stage1-windows-herdr-2026-07-31.json`](docs/qualification/stage1-windows-herdr-2026-07-31.json);
-  it is not yet a downloaded release-artifact or restart/daily-driver proof.
+- The clean local candidate at source commit `fff1f98` and the exact Windows artifact
+  from [CI run 30671133260](https://github.com/smithdak/dispatch/actions/runs/30671133260)
+  at merge commit `004c0ad` both passed the native `full_lifecycle` Herdr profile. The
+  exact artifact is attached to the
+  [`v0.2.0-alpha.1` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.1),
+  and its sanitized receipt is retained in
+  [`stage1-release-runtime-evidence-004c0adf.json`](docs/qualification/stage1-release-runtime-evidence-004c0adf.json).
+- Stage 1 remains alpha: prompt transport, server restart/process resume, concurrent
+  focus-change stress, closed-workspace ID reuse stress, atomic snapshot-to-close
+  fencing, and sustained daily-driver proof remain open.

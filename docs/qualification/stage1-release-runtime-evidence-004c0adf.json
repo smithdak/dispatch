@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-31T22:51:59.233Z",
+  "verdict": "pass",
+  "profile": "full_lifecycle",
+  "completeLifecycle": true,
+  "scope": "native-windows-existing-dispatch-session",
+  "artifactKind": "github-actions-main-artifact",
+  "source": {
+    "commit": "004c0adf021192c2eb7831f86810d5c22fc665fa",
+    "branch": "main",
+    "ciRun": "https://github.com/smithdak/dispatch/actions/runs/30671133260",
+    "windowsJob": "https://github.com/smithdak/dispatch/actions/runs/30671133260/job/91288906594",
+    "ubuntuJob": "https://github.com/smithdak/dispatch/actions/runs/30671133260/job/91288906585",
+    "ciConclusion": "success"
+  },
+  "platform": {
+    "os": "win32",
+    "architecture": "x64"
+  },
+  "dispatch": {
+    "version": "0.2.0-alpha.1",
+    "embeddedBun": "1.3.14",
+    "windowsSha256": "5d8d7fd3aee3df6b9e0e37e4adfdd8593c7ae6ee0e8f96e9a1e712e7a3c5356e",
+    "linuxCompanionSha256": "af4cee2870743fc6612438c6aaab5e0b7645033f6a29e05d53429c5c6292da70",
+    "stage0DoctorReady": true,
+    "stage1DoctorReady": true
+  },
+  "herdr": {
+    "version": "0.7.5-preview.2026-07-29-44b3adb12552",
+    "protocol": 18,
+    "sha256": "d0179e4673f944d9ac12174da0a533ea34a7cc5ee555dba208ffc4131fc38f4d",
+    "compatible": true,
+    "detachedServerDaemon": true
+  },
+  "observations": {
+    "preflight": {
+      "dispatchLifecycle": "created",
+      "ledgerSeq": 2,
+      "muxState": "not_recorded"
+    },
+    "initialOpen": {
+      "disposition": "created",
+      "receipt": "recorded",
+      "ledgerSeq": 3,
+      "muxState": "running",
+      "focused": true
+    },
+    "idempotentOpen": {
+      "disposition": "recovered",
+      "receipt": "already_recorded",
+      "sameStructuredTarget": true,
+      "ledgerSeqUnchanged": true
+    },
+    "externalClose": {
+      "dispatchLifecycle": "opened",
+      "muxState": "absent",
+      "ledgerSeqUnchanged": true
+    },
+    "recoveryOpen": {
+      "disposition": "created",
+      "receipt": "recorded",
+      "allOpaqueTargetIdsChanged": true,
+      "ledgerSeq": 4,
+      "muxState": "running",
+      "focused": true
+    },
+    "terminalClose": {
+      "muxOutcome": "closed",
+      "receipt": "recorded",
+      "dispatchLifecycle": "closed",
+      "ledgerSeq": 5,
+      "muxState": "absent"
+    },
+    "focusRestoration": {
+      "outcome": "already_focused",
+      "originalWorkspaceConfirmedFocused": true
+    },
+    "executableHashesStableThroughoutRun": true
+  },
+  "cleanup": {
+    "disposableHerdrGenerationsAbsentAfterRun": true,
+    "qualificationWorktreeAbsentAfterRun": true,
+    "qualificationBranchAbsentAfterRun": true,
+    "operatorWorkspaceFocusConfirmedAfterRun": true
+  },
+  "methodLimits": [
+    "The Windows receipt qualifies the exact downloaded GitHub Actions artifact; the Linux companion received CI and compiled Stage 0 qualification only.",
+    "No agent prompt was submitted and no agent process was launched.",
+    "No Herdr server restart or process-resume cycle was performed.",
+    "No concurrent focus-change stress was performed.",
+    "No closed-workspace ID reuse or generation stress was performed.",
+    "Herdr exposes no atomic snapshot fence between full-generation preflight and workspace-ID close.",
+    "Abrupt harness termination after a destructive step is not covered by the end-of-run evidence writer.",
+    "Sustained daily-driver qualification remains open."
+  ]
+}
