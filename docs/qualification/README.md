@@ -94,3 +94,9 @@ fields before committing evidence. The proof is native lifecycle evidence, not r
 prompt-privacy, or daily-driver evidence. Herdr has no atomic snapshot fence between the
 adapter's full-generation preflight and its subsequent workspace-ID close, so closed-ID
 reuse stress remains an explicit alpha gate.
+
+[`stage1-windows-herdr-2026-07-31.json`](stage1-windows-herdr-2026-07-31.json)
+is the sanitized `full_lifecycle` receipt for clean source commit `fff1f98`. It binds the
+local compiled candidate and exact Herdr client by SHA-256, retains the two-generation
+external-close recovery sequence, and records focus/worktree/branch cleanup. It is not a
+downloaded release-artifact, restart/resume, prompt, or daily-driver receipt.
