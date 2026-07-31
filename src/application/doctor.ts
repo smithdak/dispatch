@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { resolveDispatchPaths } from "../core/paths";
+import { MuxError } from "../ports/mux";
 
 export type DoctorCheckStatus = "ok" | "warn" | "fail";
 
@@ -12,6 +13,7 @@ export interface DoctorCheck {
 
 export interface DoctorReport {
   readonly readyForStage0: boolean;
+  readonly readyForStage1: boolean;
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -101,16 +103,34 @@ export async function diagnose(): Promise<DoctorReport> {
     detail: gitVersion ?? "not found on PATH",
   });
 
-  const tmuxVersion = await executableVersion("tmux", ["-V"]);
-  checks.push({
-    name: "tmux",
-    status: tmuxVersion ? "ok" : "warn",
-    detail:
-      tmuxVersion ??
-      (process.platform === "win32"
-        ? "not found; not required for Stage 0; native Windows orchestration is a Stage 1 decision"
-        : "not found; not required for Stage 0"),
-  });
+  let herdrReady = false;
+  if (process.platform === "win32" && process.arch === "x64") {
+    try {
+      const { loadMuxPort } = await import("../adapters/registry");
+      const capabilities = await (await loadMuxPort()).probe();
+      herdrReady = true;
+      checks.push({
+        name: "herdr",
+        status: "ok",
+        detail: `${capabilities.clientVersion}; protocol ${capabilities.protocol}; detached server ${capabilities.detachedServerDaemon ? "available" : "unavailable"}`,
+      });
+    } catch (error) {
+      checks.push({
+        name: "herdr",
+        status: "warn",
+        detail:
+          error instanceof MuxError
+            ? `${error.code}: ${error.message}; required for Stage 1 only`
+            : `${error instanceof Error ? error.message : String(error)}; required for Stage 1 only`,
+      });
+    }
+  } else {
+    checks.push({
+      name: "herdr",
+      status: "warn",
+      detail: "native Herdr orchestration is qualified only on Windows x64",
+    });
+  }
 
   const paths = resolveDispatchPaths();
   const machineId = existsSync(paths.machineIdPath)
@@ -124,8 +144,12 @@ export async function diagnose(): Promise<DoctorReport> {
       : `${paths.stateDir}; initialized on first session`,
   });
 
+  const readyForStage0 = checks
+    .filter((check) => check.name !== "herdr")
+    .every((check) => check.status !== "fail");
   return {
-    readyForStage0: checks.every((check) => check.status !== "fail"),
+    readyForStage0,
+    readyForStage1: readyForStage0 && herdrReady,
     checks,
   };
 }
