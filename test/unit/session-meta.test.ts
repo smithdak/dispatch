@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   readAllSessionMeta,
   readSessionMeta,
+  restoreSessionMeta,
   sessionEventsPath,
   writeSessionMeta,
   type SessionMeta,
@@ -85,6 +86,42 @@ describe("immutable session metadata", () => {
     expect(() => writeSessionMeta(paths, meta)).toThrow(
       "Session metadata already exists",
     );
+  });
+
+  test("restores matching metadata without replacing the immutable projection", () => {
+    const { paths, meta } = fixture();
+    writeSessionMeta(paths, meta);
+
+    expect(() => restoreSessionMeta(paths, meta)).not.toThrow();
+    expect(readSessionMeta(paths, meta.sid)).toEqual(meta);
+  });
+
+  test("replaces a corrupt derived projection from the authoritative origin", async () => {
+    const { paths, meta } = fixture();
+    writeSessionMeta(paths, meta);
+    await new JsonlLedger({
+      eventsPath: sessionEventsPath(paths, meta.sid),
+      sessionId: meta.sid,
+      machineId: meta.mid,
+    }).append({
+      src: "dsp",
+      kind: "session.created",
+      data: {
+        repositoryPath: meta.repositoryPath,
+        worktreePath: meta.worktreePath,
+        branch: meta.branch,
+        baseBranch: meta.baseBranch,
+        baseCommit: meta.baseCommit,
+        createdAt: meta.createdAt,
+      },
+    });
+    writeFileSync(
+      join(paths.sessionsDir, meta.sid, "meta.json"),
+      "not json\n",
+    );
+
+    expect(readSessionMeta(paths, meta.sid)).toEqual(meta);
+    expect(readSessionMeta(paths, meta.sid)).toEqual(meta);
   });
 
   test("ignores a pre-origin SID directory with no committed ledger bytes", () => {

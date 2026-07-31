@@ -28,7 +28,7 @@ const HELP = `Dispatch — durable agentic work sessions
 
 Usage:
   dsp new [name] [--repo <path>] [--base <ref>] [--branch <ref>] [--path <path>] [--json]
-  dsp ls [--limit <n>] [--status <status>] [--repo <path>] [--json]
+  dsp ls [--limit <n>] [--status <status>] [--repo <path>] [--verify] [--json]
   dsp log <sid> [--kind <kind>] [--limit <n>] [--json]
   dsp merge <sid> [--json]
   dsp remove <sid> [--force] [--json]
@@ -107,13 +107,14 @@ async function runList(args: readonly string[]): Promise<void> {
     limit: { type: "string" },
     status: { type: "string" },
     repo: { type: "string" },
+    verify: { type: "boolean" },
     json: { type: "boolean" },
   });
   requirePositionals(
     parsed,
     0,
     0,
-    "dsp ls [--limit <n>] [--status <status>] [--repo <path>] [--json]",
+    "dsp ls [--limit <n>] [--status <status>] [--repo <path>] [--verify] [--json]",
   );
   const limit = integerOption(parsed, "limit", 100);
   const status = sessionStatus(stringOption(parsed, "status"));
@@ -122,6 +123,7 @@ async function runList(args: readonly string[]): Promise<void> {
     ...(limit !== undefined ? { limit } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(repositoryPath !== undefined ? { repositoryPath } : {}),
+    verify: booleanOption(parsed, "verify"),
   });
   if (booleanOption(parsed, "json")) {
     printJson(sessions);

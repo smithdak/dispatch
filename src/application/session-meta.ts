@@ -189,6 +189,17 @@ function publishSessionMeta(
   const directory = sessionDirectory(paths, validated.sid);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, "meta.json");
+  if (replace) {
+    try {
+      const existing = parseSessionMeta(
+        JSON.parse(readFileSync(path, "utf8")),
+      );
+      if (JSON.stringify(existing) === JSON.stringify(validated)) return;
+    } catch {
+      // Missing, malformed, or divergent derived metadata is replaced below
+      // from the authoritative ledger origin.
+    }
+  }
   const temporary = join(
     directory,
     `.meta-${process.pid}-${randomBytes(8).toString("hex")}.tmp`,
@@ -207,10 +218,36 @@ function publishSessionMeta(
     descriptor = undefined;
 
     if (replace) {
-      // Recovery replaces only a missing or invalid projection. The
-      // same-directory rename publishes the fully synced replacement
-      // atomically.
-      renameSync(temporary, path);
+      try {
+        // POSIX rename-over-existing publishes the fully synced replacement
+        // atomically. Windows refuses that operation even for this closed
+        // derived file, so the recoverable projection needs a fallback.
+        renameSync(temporary, path);
+      } catch (error) {
+        if (
+          process.platform !== "win32" ||
+          !(error instanceof Error) ||
+          !("code" in error) ||
+          !["EEXIST", "EPERM"].includes(String(error.code))
+        ) {
+          throw error;
+        }
+        // The ledger remains authoritative during this non-atomic Windows
+        // gap. A failed second rename leaves metadata absent, which the next
+        // read deterministically reconstructs again.
+        try {
+          unlinkSync(path);
+        } catch (unlinkError) {
+          if (
+            !(unlinkError instanceof Error) ||
+            !("code" in unlinkError) ||
+            unlinkError.code !== "ENOENT"
+          ) {
+            throw unlinkError;
+          }
+        }
+        renameSync(temporary, path);
+      }
     } else {
       // A same-directory hard link publishes the fully synced inode without
       // ever replacing existing immutable metadata.

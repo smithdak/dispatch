@@ -576,6 +576,67 @@ test.serial(
 );
 
 test.serial(
+  "keeps default listing projection-fast and reconciles ledger tails only when requested",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "dispatch-list-verify-"));
+    fixtureRoots.push(root);
+    const restoreEnvironment = pointProcessEnvironmentAt(root);
+
+    try {
+      const repositoryPath = await createRepository(root);
+      const paths = resolveDispatchPaths(process.env);
+      const created = await createSession({
+        name: "List Verify",
+        repositoryPath,
+        paths,
+        env: process.env,
+      });
+
+      const ledger = new JsonlLedger({
+        eventsPath: sessionEventsPath(paths, created.meta.sid),
+        sessionId: created.meta.sid,
+        machineId: ensureMachineId(paths),
+        syncWrites: true,
+      });
+      await ledger.append({
+        src: "dsp",
+        kind: "session.opened",
+        data: { reason: "projection-crash-fixture" },
+      });
+
+      const fast = await listSessions({ paths, env: process.env });
+      expect(fast).toHaveLength(1);
+      expect(fast[0]?.lastSeq).toBe(2);
+
+      const verified = await listSessions({
+        paths,
+        env: process.env,
+        verify: true,
+      });
+      expect(verified).toHaveLength(1);
+      expect(verified[0]?.lastSeq).toBe(3);
+      expect(
+        (await sessionLog(created.meta.sid, { paths })).map(
+          (event) => event.kind,
+        ),
+      ).toEqual([
+        "session.created",
+        "worktree.created",
+        "session.opened",
+      ]);
+
+      await removeSession(created.meta.sid, false, {
+        paths,
+        env: process.env,
+      });
+    } finally {
+      restoreEnvironment();
+    }
+  },
+  STAGE_ZERO_TIMEOUT_MS,
+);
+
+test.serial(
   "discovers and terminally reconciles an origin-only create intent",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "dispatch-create-intent-"));

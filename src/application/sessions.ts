@@ -640,6 +640,13 @@ export async function listSessions(
     readonly limit?: number;
     readonly status?: SessionStatus;
     readonly repositoryPath?: string;
+    /**
+     * Reconcile every projected sequence against its authoritative ledger
+     * tail before returning. This is intentionally opt-in because it is an
+     * O(session count) filesystem scan; the normal indexed query remains the
+     * fast path and projection failures already direct operators to reindex.
+     */
+    readonly verify?: boolean;
   } = {},
 ): Promise<IndexedSession[]> {
   const app = context(options);
@@ -662,7 +669,7 @@ export async function listSessions(
         : {}),
     };
     let projectionCurrent = index.countSessions() === sessionCount;
-    if (projectionCurrent && sessionCount > 0) {
+    if (projectionCurrent && options.verify && sessionCount > 0) {
       const projected = index.listSessions({
         limit: Math.min(sessionCount, 10_000),
       });
