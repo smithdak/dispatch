@@ -24,6 +24,7 @@
     "build": "bun run scripts/build.ts --host",
     "build:matrix": "bun run scripts/build.ts --matrix",
     "qualify:binary": "bun run scripts/qualify-binary.ts",
+    "benchmark:stage0": "bun run scripts/benchmark-stage0.ts",
     "probe": "bun run scripts/probe.ts"
   },
   "devDependencies": {

@@ -8,7 +8,9 @@ This repository implements the Stage 0 command surface from [`arch.md`](arch.md)
 create, list, log, merge, remove, reindex, and Claude Code hook ingestion. The complete
 local lifecycle is executable and tested. The pinned Bun `1.3.14` source suite and
 compiled lifecycle pass locally on native Windows x64, the primary v1 target. Remote
-Windows CI and a live Claude Code invocation remain release gates.
+Windows CI and a real Claude Code invocation have both passed. Stage 0 remains a
+prerelease because its original process-level latency targets were measured and missed;
+the evidence and release verdict are retained under [`docs/qualification`](docs/qualification/README.md).
 
 Native Windows orchestration, copy-on-write dependency provisioning, review handoff, and
 batch execution remain later stages with explicit gates; they are not represented as
@@ -32,6 +34,7 @@ bun install --frozen-lockfile
 bun run check
 bun run build
 bun run qualify:binary
+bun run benchmark:stage0 --output docs/qualification/stage0-local.json
 ```
 
 `bun run check` runs strict TypeScript checking, the core import-boundary check, and all
@@ -56,6 +59,11 @@ Run from a clean Git repository on a local branch with at least one commit:
 .\dist\dsp.exe new auth-refactor
 .\dist\dsp.exe ls
 ```
+
+`dsp ls` trusts the rebuildable SQLite projection for the normal fast path. Use
+`dsp ls --verify` when you need to compare every projected sequence with its
+authoritative ledger tail and automatically rebuild stale projection state. Verification
+is intentionally O(session count); `dsp reindex` remains the explicit repair command.
 
 `dsp new` prints the session ID and worktree path. Work in that path, commit the result,
 then merge through Dispatch while the primary repository is clean and still on the
@@ -183,9 +191,10 @@ arch.md                    architecture specification v0.2
 
 ## Stage boundaries
 
-- Stage 0 command surface: implemented and locally verified on the pinned runtime through
-  the compiled binary on native Windows x64. Remote CI and live-provider qualification
-  remain open.
+- Stage 0 command surface: implemented and functionally qualified through the pinned
+  compiled binary on native Windows x64, remote Windows/Linux CI, and a real Claude Code
+  process. Its original latency targets remain missed and are an explicit prerelease
+  exception rather than an unmeasured claim.
 - Stage 1: the native Windows orchestration backend is an open architecture decision; no
   mux implementation is represented as finished.
 - Stage 2: only the filesystem probe harness exists; no provisioning engine ships before
@@ -208,10 +217,15 @@ use.
   with `dsp remove <sid>`; resuming that same creation intent is not implemented.
 - Provider hooks are recorded at least once. Provider correlation identifiers are
   retained for diagnosis, but cross-process semantic deduplication is not implemented.
-- The `<5 ms` hook-append and `<50 ms` 500-session query targets in `arch.md` are
-  unverified on supported targets.
-- The CI workflow and three-target build matrix are configured, not evidence that those
-  remote jobs or artifacts have run.
-- A real Claude Code process must confirm that the user-scope hook resolves and appends
-  in a generated worktree. The suite exercises the identical executable stdin path with
-  fixture payloads, but not Claude itself.
+- The process-level latency targets in `arch.md` are measured and missed on the retained
+  Windows host. The projection-fast repair reduced the 500-session query median from
+  `2821.357 ms` to `96.869 ms`; the original `<50 ms` query, `<25 ms` cold-start, and
+  `<5 ms` hook-append targets still do not pass. See
+  [`docs/qualification`](docs/qualification/README.md) for raw samples and method limits.
+- [CI run 30651557200](https://github.com/smithdak/dispatch/actions/runs/30651557200)
+  passed the pinned source suite, host compilation, compiled Stage 0 lifecycle, and
+  artifact upload on Windows and Ubuntu at commit `8dbe8a9`.
+- A real native Claude Code `2.1.220` process invoked the installed compiled hook in a
+  generated worktree and durably produced `agent.started`, `turn.started`,
+  `turn.completed`, and `agent.stopped`. The sanitized receipt is retained in
+  [`stage0-live-claude-windows-2026-07-31.json`](docs/qualification/stage0-live-claude-windows-2026-07-31.json).

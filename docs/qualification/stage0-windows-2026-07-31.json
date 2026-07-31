@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-31T20:51:20.681Z",
+  "evidence": {
+    "machineLocal": {
+      "scope": "single-machine compiled-process measurement",
+      "source": {
+        "gitHead": "733fa34dbe3c7396a8e3a8b3ebf0a4ec6c0ef1cc",
+        "workingTreeDirty": false,
+        "dirtyPaths": []
+      },
+      "binary": {
+        "path": "dist\\dsp.exe",
+        "sha256": "8ca5ef99e24f1f026c403055a5f0acf272fd93e6159d19dd7f610197214865d3",
+        "dispatchVersion": "0.1.0",
+        "embeddedBun": "1.3.14"
+      },
+      "harness": {
+        "bun": "1.3.14",
+        "codexManagedEnvironment": true
+      },
+      "host": {
+        "platform": "win32",
+        "architecture": "x64",
+        "osRelease": "10.0.26100",
+        "osVersion": "Windows 11 Pro",
+        "logicalProcessors": 32,
+        "cpuModel": "AMD Ryzen 9 5950X 16-Core Processor",
+        "totalMemoryBytes": 68604313600
+      },
+      "method": {
+        "processBoundary": "Bun.spawnSync around a fresh compiled dsp process",
+        "storage": "isolated temporary Dispatch state on the host default temporary filesystem",
+        "warmupIterations": 5,
+        "measuredIterations": 30,
+        "sessionFixtureCount": 500,
+        "cacheQualification": "processes are fresh; operating-system file and image caches are not flushed",
+        "hookDurability": "product-default fsync enabled"
+      },
+      "measurements": {
+        "cliColdStart": {
+          "command": "dsp --version",
+          "samplesMs": [
+            58.002,
+            60.542,
+            61.044,
+            56.653,
+            57.612,
+            58.676,
+            169.684,
+            58.308,
+            139.67,
+            61.145,
+            61.297,
+            59.833,
+            57.978,
+            60.657,
+            62.177,
+            61.146,
+            60.47,
+            58.654,
+            58.707,
+            58.926,
+            58.476,
+            61.643,
+            60.736,
+            61.297,
+            60.763,
+            59.242,
+            56.307,
+            59.688,
+            59.311,
+            61.853
+          ],
+          "summary": {
+            "count": 30,
+            "minimumMs": 56.307,
+            "medianMs": 59.833,
+            "p95Ms": 139.67,
+            "maximumMs": 169.684,
+            "meanMs": 66.017
+          },
+          "targetObservation": {
+            "targetMsExclusive": 25,
+            "medianUnderTarget": false,
+            "p95UnderTarget": false,
+            "maximumUnderTarget": false
+          }
+        },
+        "hookProcessAppend": {
+          "command": "dsp hook claude",
+          "samplesMs": [
+            97.39,
+            90.578,
+            90.197,
+            92.015,
+            91.136,
+            90.985,
+            89.638,
+            324.93,
+            528.186,
+            94.853,
+            92.442,
+            91.759,
+            88.967,
+            94.305,
+            89.809,
+            105.757,
+            92.358,
+            95.115,
+            91.199,
+            94.061,
+            91.522,
+            96.371,
+            93.602,
+            93.313,
+            92.856,
+            95.106,
+            93.303,
+            95.025,
+            89.295,
+            100.472
+          ],
+          "summary": {
+            "count": 30,
+            "minimumMs": 88.967,
+            "medianMs": 92.856,
+            "p95Ms": 324.93,
+            "maximumMs": 528.186,
+            "meanMs": 115.551
+          },
+          "targetObservation": {
+            "targetMsExclusive": 5,
+            "medianUnderTarget": false,
+            "p95UnderTarget": false,
+            "maximumUnderTarget": false
+          },
+          "capturedEvents": 35
+        },
+        "sessionQuery": {
+          "command": "dsp ls --limit 500 --json",
+          "samplesMs": [
+            2811.08,
+            2796.886,
+            2801.687,
+            2858.598,
+            2859.761,
+            2881.813,
+            2821.357,
+            2820.886,
+            3026.987,
+            2865.427,
+            2900.705,
+            2798.726,
+            2809.131,
+            2802.788,
+            2818.063,
+            2785.315,
+            2815.528,
+            2837.171,
+            2835.973,
+            2852.928,
+            3065.605,
+            2806.157,
+            2814.267,
+            2807.554,
+            2827.535,
+            2793.71,
+            2884.525,
+            2860.333,
+            2849.338,
+            2917.238
+          ],
+          "summary": {
+            "count": 30,
+            "minimumMs": 2785.315,
+            "medianMs": 2821.357,
+            "p95Ms": 3026.987,
+            "maximumMs": 3065.605,
+            "meanMs": 2847.569
+          },
+          "targetObservation": {
+            "targetMsExclusive": 50,
+            "medianUnderTarget": false,
+            "p95UnderTarget": false,
+            "maximumUnderTarget": false
+          }
+        }
+      }
+    },
+    "ci": {
+      "status": "not-collected",
+      "reason": "This local benchmark does not query GitHub Actions."
+    },
+    "liveClaude": {
+      "status": "not-collected",
+      "reason": "Fixture-backed stdin is not evidence of a real Claude Code invocation."
+    }
+  }
+}
