@@ -262,6 +262,73 @@ describe("Claude Code hook settings", () => {
     }
   });
 
+  test("migrates old unrestricted Dispatch hooks without duplicating events", () => {
+    const absoluteInvocation = {
+      command: "C:\\Program Files\\Dispatch\\dsp.exe",
+      args: ["hook", "claude"],
+    };
+    const merged = mergeClaudeHookSettings(
+      {
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [
+                { type: "command", command: "audit-all" },
+                {
+                  type: "command",
+                  command: "dsp",
+                  args: ["hook", "claude"],
+                },
+              ],
+            },
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "C:\\old\\dsp.exe",
+                  args: ["hook", "claude"],
+                },
+              ],
+            },
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: "other-agent",
+                  args: ["hook", "claude"],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      absoluteInvocation,
+    );
+
+    const groups = (merged.hooks as Record<string, unknown[]>).PreToolUse;
+    expect(groups).toHaveLength(2);
+    expect(groups).toEqual([
+      {
+        hooks: [
+          { type: "command", command: "audit-all" },
+          { type: "command", ...absoluteInvocation },
+        ],
+      },
+      {
+        hooks: [
+          {
+            type: "command",
+            command: "other-agent",
+            args: ["hook", "claude"],
+          },
+        ],
+      },
+    ]);
+    expect(mergeClaudeHookSettings(merged, absoluteInvocation)).toEqual(
+      merged,
+    );
+  });
+
   test("does not treat a restricted matcher as full event coverage", () => {
     const merged = mergeClaudeHookSettings({
       hooks: {

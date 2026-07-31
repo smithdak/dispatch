@@ -24,10 +24,19 @@ describe("hooks install CLI", () => {
     const home = temporaryDirectory();
     const output: string[] = [];
 
-    const exitCode = await runCli(["hooks", "install", "claude"], {
-      env: { HOME: home },
-      stdout: (value) => output.push(value),
-    });
+    const exitCode = await runCli(
+      [
+        "hooks",
+        "install",
+        "claude",
+        "--command",
+        join(home, "dsp.exe"),
+      ],
+      {
+        env: { HOME: home },
+        stdout: (value) => output.push(value),
+      },
+    );
 
     expect(exitCode).toBe(0);
     expect(existsSync(join(home, ".claude", "settings.json"))).toBe(true);
@@ -43,7 +52,15 @@ describe("hooks install CLI", () => {
     const output: string[] = [];
 
     const exitCode = await runCli(
-      ["hooks", "install", "claude", "--project", project],
+      [
+        "hooks",
+        "install",
+        "claude",
+        "--project",
+        project,
+        "--command",
+        join(root, "dsp.exe"),
+      ],
       {
         env: { HOME: home },
         stdout: (value) => output.push(value),
@@ -66,7 +83,14 @@ describe("hooks install CLI", () => {
     const output: string[] = [];
 
     const exitCode = await runCli(
-      ["hooks", "install", "claude", "--json"],
+      [
+        "hooks",
+        "install",
+        "claude",
+        "--command",
+        join(home, "dsp.exe"),
+        "--json",
+      ],
       {
         env: { HOME: home },
         stdout: (value) => output.push(value),

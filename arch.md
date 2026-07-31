@@ -7,7 +7,9 @@ provisioning gaps. Stack and scaffolding rules from v0.1 survive; scope, subsyst
 sequencing are rewritten.
 
 **Spec date:** 2026-07-30
-**Targets:** macOS (arm64, x64), Linux (x64, arm64). Windows deferred.
+**Targets:** Windows x64 primary; Linux x64 secondary. macOS deferred pending path
+canonicalization. This target amendment and the Stage 1 mux reset are recorded in
+[`ADR 0002`](docs/decisions/0002-windows-primary-target.md).
 **As-of basis:** version pins verified 2026-07-30. See Appendix A.
 **Working name:** `dispatch`, binary `dsp`. Unresolved — see O2.
 
@@ -37,7 +39,8 @@ Invention budget is spent only on rows 1–2 and on the identity model that join
 ### Non-goals
 
 Terminal emulation; a diff-review UI; accounts, cloud, or telemetry; an editor; a plugin
-system before the schema is stable; Windows support in v1.
+system before the schema is stable; macOS support before its path identity contract is
+requalified.
 
 ---
 
@@ -66,8 +69,8 @@ system before the schema is stable; Windows support in v1.
   leaf adapters.
 
 - **I7 — One artifact, assumed toolchain.** A single compiled binary. The machine is
-  expected to provide `git` and `tmux`. This is a deliberate weakening of v0.1's
-  "no prerequisites," accepted because the alternative is reimplementing tmux.
+  expected to provide `git`. Stage 1 orchestration sits behind a platform port; a native
+  Windows backend is required before the primary dogfood gate.
 
 - **I8 — Provisioned worktrees never share mutable state.** Any provisioning strategy that
   could let a write in one worktree be observed by another is forbidden for that path.
@@ -90,7 +93,7 @@ Unchanged from v0.1 except where the new scope adds a row.
 | Config                     | TOML via Bun's native import     | Bun-native           | yaml, cosmiconfig      |
 | Tests                      | `bun:test`                       | Bun-native           | vitest                 |
 | Claude headless (optional) | `@anthropic-ai/claude-agent-sdk` | `0.3.220`            | subprocess parsing     |
-| Multiplexer                | `tmux` (external)                | system               | in-process PTY         |
+| Multiplexer                | Platform port; backend open      | Stage 1 decision     | hard-coded tmux        |
 | Diff review                | `hunk` or `tuicr` (external)     | see O1               | building a review UI   |
 
 **Performance note, stated honestly.** Bun is not the fast choice; it is the maintainable
@@ -280,11 +283,12 @@ dispatch/
 │   │   ├── config/              #   TOML load, global + project merge
 │   │   └── paths/               #   XDG resolution, machine id
 │   ├── ports/
-│   │   ├── mux.ts               #   window/pane/status — tmux today, others later
+│   │   ├── mux.ts               #   window/pane/status — platform-neutral contract
 │   │   ├── agent.ts             #   hook ingestion + optional headless drive
 │   │   └── review.ts            #   open a review against a worktree
 │   ├── adapters/
-│   │   ├── tmux/                #   only importer of tmux specifics
+│   │   ├── mux-windows/         #   selected through O7 before Stage 1 build
+│   │   ├── tmux/                #   optional Linux importer of tmux specifics
 │   │   ├── hooks/               #   per-provider hook installers + translators
 │   │   ├── claude-sdk/          #   only importer of the Agent SDK; optional
 │   │   └── review-hunk/         #   or review-tuicr, per O1
@@ -317,7 +321,7 @@ Ordered to reach daily-driver status fastest, because an undogfooded tool gets a
 | Stage | Scope                                                                        | Exit threshold                                                                                 |
 | ----- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | **0** | Identity, worktree lifecycle, ledger, hook ingestion for Claude Code, CLI    | Create, list, merge, remove from commands; events land; `dsp log <sid>` replays a real session |
-| **1** | tmux orchestration: layouts, panes, prompt injection, status in window names | Replaces workmux in daily use — this is the dogfood gate                                       |
+| **1** | Native Windows orchestration: layouts, panes, prompt injection, status        | Replaces the current Windows session launcher in daily use — this is the dogfood gate          |
 | **2** | Provisioning engine: strategy ladder, template cache                         | Measured sub-second warm provision on APFS; honest degradation on ext4                         |
 | **3** | Review handoff, `outcome.recorded`, query CLI, agent history skill           | An agent can query prior attempts and act on the answer                                        |
 | **4** | Batch: worker pool, `--max-concurrent`, matrix prompts                       | Sequential and parallel task batches run unattended                                            |
@@ -338,6 +342,7 @@ ledger (reassess Stages 0–1 entirely); any provider breaks its hook contract.
 | **O4** | Headless execution: SDK-driven or hook-observed only | Hooks for v1; add the SDK path only if unattended runs need permission callbacks                                                                  | Stage 4 experience                                                                                                            | Medium                           |
 | **O5** | Config merge semantics for global vs project         | Copy workmux's two-level model and its `"<global>"` include token; it is proven                                                                   | Stage 1                                                                                                                       | Low                              |
 | **O6** | Schema evolution policy                              | New kinds bump `v`; new `data` fields do not; readers ignore unknown `data` fields and reject unknown envelope fields                             | Before Stage 0 ships                                                                                                          | Medium                           |
+| **O7** | Native Windows mux backend                           | Define the port first; select by a focused Windows Terminal, ConPTY, WezTerm, and existing-cockpit spike rather than assuming tmux                | Before Stage 1 implementation                                                                                                | **High** — daily-driver gate     |
 
 O3 is the only item that can invalidate a thesis. Resolve it before Stage 2, not during.
 

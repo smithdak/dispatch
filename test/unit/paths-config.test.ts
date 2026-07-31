@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { loadConfig } from "../../src/core/config";
 import {
   ensureMachineId,
+  pathKey,
   resolveDispatchPaths,
 } from "../../src/core/paths";
 
@@ -55,6 +56,35 @@ describe("dispatch paths", () => {
 
     expect(first).toBe(second);
     expect(first).toMatch(/^[a-z0-9][a-z0-9._-]{2,63}$/);
+  });
+
+  test("resolve native Windows application-data roots", () => {
+    const root = temporaryDirectory();
+    const local = join(root, "Local App Data");
+    const roaming = join(root, "Roaming App Data");
+    const paths = resolveDispatchPaths(
+      {
+        USERPROFILE: root,
+        LOCALAPPDATA: local,
+        APPDATA: roaming,
+      },
+      "win32",
+    );
+
+    expect(paths.stateDir).toBe(join(local, "dispatch"));
+    expect(paths.cacheDir).toBe(join(local, "dispatch"));
+    expect(paths.defaultWorktreeRoot).toBe(
+      join(local, "dispatch", "worktrees"),
+    );
+    expect(paths.globalConfigPath).toBe(
+      join(roaming, "dispatch", "config.toml"),
+    );
+  });
+
+  test("treats Windows path case as one physical identity", () => {
+    if (process.platform !== "win32") return;
+    const root = temporaryDirectory();
+    expect(pathKey(root.toUpperCase())).toBe(pathKey(root.toLowerCase()));
   });
 });
 

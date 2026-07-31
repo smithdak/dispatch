@@ -6,22 +6,24 @@ append-only JSONL ledger, and derives fast session views in SQLite.
 
 This repository implements the Stage 0 command surface from [`arch.md`](arch.md):
 create, list, log, merge, remove, reindex, and Claude Code hook ingestion. The complete
-local lifecycle is executable and tested. Release qualification still requires Bun
-`1.3.14` on a supported macOS/Linux target and a live Claude Code invocation; the local
-verification host is Windows with Bun `1.3.6`.
+local lifecycle is executable and tested. The pinned Bun `1.3.14` source suite and
+compiled lifecycle pass locally on native Windows x64, the primary v1 target. Remote
+Windows CI and a live Claude Code invocation remain release gates.
 
-Tmux orchestration, copy-on-write dependency provisioning, review handoff, and batch
-execution remain later stages with explicit gates; they are not represented as finished.
+Native Windows orchestration, copy-on-write dependency provisioning, review handoff, and
+batch execution remain later stages with explicit gates; they are not represented as
+finished.
 
 ## Requirements
 
-- Bun `1.3.14` (repository-pinned)
+- Windows x64 (primary v1 target) or Linux x64 (secondary target)
 - Git on `PATH`
-- macOS or Linux for the supported v1 target
-- tmux only for the unimplemented Stage 1
+- Bun `1.3.14` for source development and release builds; legacy `1.3.6` is also locally
+  qualified with a doctor warning. Other Bun versions fail `doctor` until qualified.
 
-Windows remains unsupported as a product target. The test suite runs on Windows to catch
-path and process-boundary defects, but that is not a support claim.
+The compiled binary embeds Bun and does not require a separate Bun installation. Stage 1
+has no selected native Windows orchestration backend yet; tmux is not a Windows
+prerequisite and WSL is not treated as native Windows qualification.
 
 ## Verify and build
 
@@ -29,37 +31,40 @@ path and process-boundary defects, but that is not a support claim.
 bun install --frozen-lockfile
 bun run check
 bun run build
+bun run qualify:binary
 ```
 
 `bun run check` runs strict TypeScript checking, the core import-boundary check, and all
 unit, contract, and integration tests. `bun run build` compiles the host `dsp` binary
-with bytecode. The release matrix is available separately:
+with bytecode. `bun run qualify:binary` drives that artifact through doctor, worktree
+creation, hook ingestion, merge, and removal. The cross-build matrix is available
+separately:
 
 ```sh
 bun run build:matrix
 ```
 
-That command targets macOS and Linux on arm64 and x64 and may download target Bun
+That command targets Windows x64 plus Linux x64 and arm64 and may download target Bun
 runtimes.
 
 ## First session
 
 Run from a clean Git repository on a local branch with at least one commit:
 
-```sh
-bun run dsp doctor
-bun run dsp new auth-refactor
-bun run dsp ls
+```powershell
+.\dist\dsp.exe doctor
+.\dist\dsp.exe new auth-refactor
+.\dist\dsp.exe ls
 ```
 
 `dsp new` prints the session ID and worktree path. Work in that path, commit the result,
 then merge through Dispatch while the primary repository is clean and still on the
 recorded base branch:
 
-```sh
-bun run dsp log <sid>
-bun run dsp merge <sid>
-bun run dsp remove <sid>
+```powershell
+.\dist\dsp.exe log <sid>
+.\dist\dsp.exe merge <sid>
+.\dist\dsp.exe remove <sid>
 ```
 
 `merge` rejects uncommitted session work, then records the committed session diffstat,
@@ -71,26 +76,30 @@ recorded as `git.discarded`, even if an earlier merge outcome exists.
 
 Install structured hooks at Claude user scope:
 
-```sh
-bun run dsp hooks install claude
+```powershell
+.\dist\dsp.exe hooks install claude
 ```
 
-The default installer updates `~/.claude/settings.json` idempotently and preserves
-existing settings. User scope is deliberate: future Dispatch worktrees inherit the hook
-without per-worktree setup. The hook resolves cwd against Dispatch session metadata and
-returns without recording anything outside a Dispatch-owned worktree.
+The default installer updates `%USERPROFILE%\.claude\settings.json` on Windows
+idempotently and preserves existing settings. A compiled binary records its own absolute
+executable path using Claude Code's shell-free exec form, so spaces are safe and `dsp`
+does not need to be on `PATH`. Keep the installed executable at that path. User scope is
+deliberate: future Dispatch worktrees inherit the hook without per-worktree setup. The
+hook resolves cwd against Dispatch session metadata and returns without recording
+anything outside a Dispatch-owned worktree.
 
 To constrain installation to one existing project:
 
-```sh
-bun run dsp hooks install claude --project /path/to/repository
+```powershell
+.\dist\dsp.exe hooks install claude --project D:\github\repository
 ```
 
-Explicit project scope writes `/path/to/repository/.claude/settings.local.json`. It is
+Explicit project scope writes `D:\github\repository\.claude\settings.local.json`. It is
 project-local only and is **not inherited by future Dispatch worktrees**.
 
-A compiled installation uses `dsp hook claude`; when testing from source, pass an installed
-wrapper or explicit executable path through `--command`.
+A compiled installation self-registers. When testing from source, pass an explicit
+compiled executable path through `--command`; a Windows `.cmd` or `.bat` shim is not a
+valid Claude exec-form target.
 
 This answers how a Claude hook becomes durable query state:
 
@@ -112,10 +121,10 @@ values.
 
 ## State and configuration
 
-Authoritative state follows XDG paths:
+On Windows, authoritative state uses native application-data paths:
 
 ```text
-$XDG_STATE_HOME/dispatch/
+%LOCALAPPDATA%\dispatch\
 ├── machine-id
 ├── index.sqlite                 derived and disposable
 └── sessions/
@@ -128,12 +137,13 @@ For isolated development and tests, `DISPATCH_HOME` overrides the Dispatch state
 directory. `DISPATCH_WORKTREE_ROOT` and `DISPATCH_BRANCH_PREFIX` override their
 configuration values.
 
-Global configuration is `$XDG_CONFIG_HOME/dispatch/config.toml`; a repository may
-override it with `.dispatch.toml`:
+Global configuration is `%APPDATA%\dispatch\config.toml` on Windows and
+`$XDG_CONFIG_HOME/dispatch/config.toml` on Linux; a repository may override it with
+`.dispatch.toml`:
 
 ```toml
 [worktrees]
-root = "~/.local/share/dispatch/worktrees"
+root = "D:\\worktrees\\dispatch"
 branch_prefix = "dispatch/"
 
 [ledger]
@@ -155,13 +165,13 @@ src/
     index/                 disposable SQLite projection
     worktree/              argv-safe Git lifecycle and diffstat
     config/                strict TOML overlay
-    paths/                 XDG state and machine identity
+    paths/                 native state paths and machine identity
   application/             lifecycle orchestration across core boundaries
   adapters/hooks/          provider translators and hook settings
   ports/                   provider-neutral agent contract
   cli/                     human command surface and lazy router
   hook/                    minimal provider-facing process entry
-scripts/                   build, boundary, and reflink probe commands
+scripts/                   build, qualification, boundary, and reflink probe commands
 test/
   unit/                    deterministic core and CLI tests
   contract/                fixture-backed provider adapter contract
@@ -173,9 +183,11 @@ arch.md                    architecture specification v0.2
 
 ## Stage boundaries
 
-- Stage 0 command surface: implemented and locally verified on the unsupported Windows
-  compatibility host. Supported-target and live-provider qualification remain open.
-- Stage 1: tmux orchestration is not implemented or dogfooded.
+- Stage 0 command surface: implemented and locally verified on the pinned runtime through
+  the compiled binary on native Windows x64. Remote CI and live-provider qualification
+  remain open.
+- Stage 1: the native Windows orchestration backend is an open architecture decision; no
+  mux implementation is represented as finished.
 - Stage 2: only the filesystem probe harness exists; no provisioning engine ships before
   the O3 divergence-safety spike.
 - Stage 3: merge outcomes and a basic history skill exist; review handoff and richer
@@ -198,7 +210,7 @@ use.
   retained for diagnosis, but cross-process semantic deduplication is not implemented.
 - The `<5 ms` hook-append and `<50 ms` 500-session query targets in `arch.md` are
   unverified on supported targets.
-- The CI workflow and four-target build matrix are configured, not evidence that those
+- The CI workflow and three-target build matrix are configured, not evidence that those
   remote jobs or artifacts have run.
 - A real Claude Code process must confirm that the user-scope hook resolves and appends
   in a generated worktree. The suite exercises the identical executable stdin path with

@@ -250,11 +250,10 @@ test.serial(
         "HEAD",
       ]);
 
-      // Deleting the disposable projection must not make the next hook lose
-      // the session's earlier event history or produce a partial index.
+      // Corrupting the disposable projection must not prevent the next hook
+      // from resolving metadata and committing to the authoritative ledger.
       expect(existsSync(paths.indexPath)).toBeTrue();
-      await unlink(paths.indexPath);
-      expect(existsSync(paths.indexPath)).toBeFalse();
+      await writeFile(paths.indexPath, "not a sqlite database\n");
 
       const providerSessionId = "claude-session-stage-zero";
       const providerToolUseId = "toolu_stage_zero_001";
@@ -273,11 +272,11 @@ test.serial(
         },
         tool_use_id: providerToolUseId,
       });
-      expect(hookResult).toEqual({
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-      });
+      expect(hookResult.exitCode).toBe(0);
+      expect(hookResult.stdout).toBe("");
+      expect(hookResult.stderr).toContain(
+        "1 index update failed; run dsp reindex",
+      );
 
       const toolEvents = await sessionLog(created.meta.sid, {
         paths,
@@ -317,7 +316,10 @@ test.serial(
         paths,
         env: process.env,
       });
-      expect(merged.projectionWarnings).toEqual([]);
+      expect(merged.projectionWarnings).toHaveLength(1);
+      expect(merged.projectionWarnings[0]).toContain(
+        "index projection failed",
+      );
       expect(merged.value).toMatchObject({
         repositoryPath: resolve(repositoryPath),
         worktreePath: created.meta.worktreePath,
@@ -354,11 +356,33 @@ test.serial(
       });
       expect(mergedLog.at(-1)?.data).toEqual({ reason: "merged" });
 
+      const terminalHook = await runClaudeHookProcess({
+        session_id: "claude-session-after-merge",
+        transcript_path: join(root, "claude", "after-merge.jsonl"),
+        cwd: created.meta.worktreePath,
+        permission_mode: "default",
+        hook_event_name: "PreToolUse",
+        tool_name: "Read",
+        tool_input: {
+          file_path: join(created.meta.worktreePath, "README.md"),
+        },
+        tool_use_id: "toolu_after_merge",
+      });
+      expect(terminalHook).toEqual({
+        exitCode: 0,
+        stdout: "",
+        stderr: "dispatch hook: 1 index update failed; run dsp reindex\n",
+      });
+      expect(await sessionLog(created.meta.sid, { paths })).toHaveLength(6);
+
       const removed = await removeSession(created.meta.sid, false, {
         paths,
         env: process.env,
       });
-      expect(removed.projectionWarnings).toEqual([]);
+      expect(removed.projectionWarnings).toHaveLength(1);
+      expect(removed.projectionWarnings[0]).toContain(
+        "index projection failed",
+      );
       expect(removed.value).toEqual({
         repositoryPath: resolve(repositoryPath),
         worktreePath: created.meta.worktreePath,
@@ -467,7 +491,10 @@ test.serial(
         tool_use_id: "toolu_reused_path",
       });
       expect(reusedHook.exitCode).toBe(0);
-      expect(reusedHook.stderr).toBe("");
+      expect([
+        "",
+        "dispatch hook: 1 index update failed; run dsp reindex\n",
+      ]).toContain(reusedHook.stderr);
       expect(
         (await sessionLog(reused.meta.sid, { paths })).map(
           (event) => event.kind,

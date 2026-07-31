@@ -1,5 +1,6 @@
 import { loadConfig } from "../core/config";
 import { SessionIndex } from "../core/index";
+import { withExclusiveFileLock } from "../core/ledger";
 import {
   ensureStateDirectories,
   resolveDispatchPaths,
@@ -7,8 +8,10 @@ import {
 import { translateHook, type HookProvider } from "../adapters/registry";
 import {
   appendSessionEvent,
+  readSessionHistory,
   resolveSessionMetaByPath,
 } from "../application/ledger-service";
+import { sessionEventsPath } from "../application/session-meta";
 
 export interface HookRunResult {
   readonly captured: boolean;
@@ -35,38 +38,89 @@ export async function ingestHookPayload(
 
   const paths = resolveDispatchPaths();
   ensureStateDirectories(paths);
-  const index = new SessionIndex(paths.indexPath);
+  let index: SessionIndex | undefined;
+  let projectionWarnings = 0;
   try {
-    const meta = await resolveSessionMetaByPath(
-      paths,
-      translation.value.cwd,
-      index,
-    );
+    let meta;
+    try {
+      index = new SessionIndex(paths.indexPath);
+      meta = await resolveSessionMetaByPath(
+        paths,
+        translation.value.cwd,
+        index,
+      );
+    } catch {
+      try {
+        index?.close();
+      } catch {
+        // Preserve the projection failure as a warning; the ledger fallback
+        // below remains the authoritative capture path.
+      }
+      index = undefined;
+      projectionWarnings += 1;
+      meta = await resolveSessionMetaByPath(
+        paths,
+        translation.value.cwd,
+        null,
+      );
+    }
     // Hooks may be installed user-wide. A structured event outside a
     // Dispatch-owned worktree is intentionally ignored, not treated as an
     // integration failure.
-    if (!meta) return { captured: false, events: 0, projectionWarnings: 0 };
+    if (!meta) return { captured: false, events: 0, projectionWarnings };
 
     const config = loadConfig(paths, meta.repositoryPath);
-    index.upsertSession(meta);
-    let projectionWarnings = 0;
-    for (const draft of translation.value.drafts) {
-      const result = await appendSessionEvent(
-        paths,
-        config,
-        meta,
-        draft,
-        index,
-      );
-      if (result.projectionError) projectionWarnings += 1;
-    }
-    return {
-      captured: true,
-      events: translation.value.drafts.length,
-      projectionWarnings,
-    };
+    return withExclusiveFileLock(
+      `${sessionEventsPath(paths, meta.sid)}.lifecycle`,
+      async () => {
+        const history = await readSessionHistory(paths, meta.sid);
+        const terminal = history.some(
+          (event) =>
+            event.kind === "session.closed" ||
+            event.kind === "worktree.removed",
+        );
+        if (terminal) {
+          return { captured: false, events: 0, projectionWarnings };
+        }
+
+        if (index) {
+          try {
+            index.upsertSession(meta);
+          } catch {
+            try {
+              index.close();
+            } catch {
+              // The projection is already unusable; capture still proceeds.
+            }
+            index = undefined;
+            projectionWarnings += 1;
+          }
+        }
+
+        for (const draft of translation.value.drafts) {
+          const result = await appendSessionEvent(
+            paths,
+            config,
+            meta,
+            draft,
+            index,
+          );
+          if (result.projectionError) projectionWarnings += 1;
+        }
+        return {
+          captured: true,
+          events: translation.value.drafts.length,
+          projectionWarnings,
+        };
+      },
+      { timeoutMs: config.ledger.lockTimeoutMs },
+    );
   } finally {
-    index.close();
+    try {
+      index?.close();
+    } catch {
+      // Projection close failures cannot invalidate a committed hook event.
+    }
   }
 }
 

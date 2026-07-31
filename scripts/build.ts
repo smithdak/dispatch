@@ -6,10 +6,9 @@ const dist = join(root, "dist");
 const mode = process.argv[2] ?? "--host";
 
 const matrix = [
-  { target: "bun-darwin-arm64", output: "dsp-darwin-arm64" },
-  { target: "bun-darwin-x64", output: "dsp-darwin-x64" },
-  { target: "bun-linux-arm64", output: "dsp-linux-arm64" },
+  { target: "bun-windows-x64", output: "dsp-windows-x64.exe" },
   { target: "bun-linux-x64", output: "dsp-linux-x64" },
+  { target: "bun-linux-arm64", output: "dsp-linux-arm64" },
 ] as const;
 
 async function compile(target?: string, output = "dsp"): Promise<void> {
@@ -21,11 +20,14 @@ async function compile(target?: string, output = "dsp"): Promise<void> {
     "--minify",
     "--no-compile-autoload-dotenv",
     "--no-compile-autoload-bunfig",
+    "--define=__DISPATCH_STANDALONE__=true",
     `--outfile=${join(dist, output)}`,
   ];
   if (target) args.push(`--target=${target}`);
 
-  const child = Bun.spawn(["bun", ...args], {
+  // Preserve the repository pin even when the caller uses a portable Bun
+  // that is not first on PATH.
+  const child = Bun.spawn([process.execPath, ...args], {
     cwd: root,
     stdin: "inherit",
     stdout: "inherit",

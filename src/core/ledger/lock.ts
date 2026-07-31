@@ -152,6 +152,23 @@ async function acquireLock(
 
       return owner;
     } catch (error) {
+      if (
+        process.platform === "win32" &&
+        hasErrorCode(error, "EPERM")
+      ) {
+        // NTFS can report EPERM while another process is removing the lock
+        // directory. Unlike a stable ACL failure, this transition clears on
+        // retry. Bound retries by the caller's normal lock timeout.
+        const elapsed = Date.now() - startedAt;
+        if (elapsed >= options.timeoutMs) {
+          throw new LockTimeoutError(lockPath, options.timeoutMs);
+        }
+        await delay(
+          Math.min(options.pollIntervalMs, options.timeoutMs - elapsed),
+          options.signal,
+        );
+        continue;
+      }
       if (!hasErrorCode(error, "EEXIST")) {
         throw error;
       }
@@ -221,8 +238,21 @@ async function reapAbandonedLock(
       throw error;
     }
   } catch (error) {
-    if (!hasErrorCode(error, "EEXIST")) throw error;
-    return reapAbandonedReaperGuard(guardPath, staleAfterMs);
+    if (hasErrorCode(error, "EEXIST")) {
+      return reapAbandonedReaperGuard(guardPath, staleAfterMs);
+    }
+    if (
+      hasErrorCode(error, "ENOENT") ||
+      (process.platform === "win32" && hasErrorCode(error, "EPERM"))
+    ) {
+      // The lock owner may remove lockPath after this contender observes
+      // EEXIST but before it creates the nested reaper guard. POSIX normally
+      // reports ENOENT; Windows can report EPERM for the same vanished-parent
+      // race. Retry acquisition. If the parent still exists but is genuinely
+      // inaccessible, the normal timeout remains fail-closed.
+      return !(await pathExists(lockPath));
+    }
+    throw error;
   }
 
   try {

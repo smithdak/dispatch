@@ -82,37 +82,64 @@ function commandHook(
   };
 }
 
-function isSameInvocation(
-  value: unknown,
-  invocation: ClaudeHookInvocation,
-): boolean {
+function hasDispatchHookArguments(value: unknown): value is JsonRecord {
   if (
     !isRecord(value) ||
     value.type !== "command" ||
-    value.command !== invocation.command ||
     !Array.isArray(value.args) ||
-    value.args.length !== invocation.args.length
+    value.args.length !== 2
   ) {
     return false;
   }
 
-  return value.args.every(
-    (argument, index) => argument === invocation.args[index],
-  );
+  return value.args[0] === "hook" && value.args[1] === "claude";
 }
 
-function isUnmatchedDispatchGroup(
+function isManagedDispatchCommandHook(
   value: unknown,
   invocation: ClaudeHookInvocation,
 ): boolean {
-  if (!isRecord(value) || hasMeaningfulMatcher(value.matcher)) {
+  if (!hasDispatchHookArguments(value) || typeof value.command !== "string") {
     return false;
   }
+  if (value.command === invocation.command) return true;
+  const executableName = value.command.split(/[\\/]/).at(-1)?.toLowerCase();
+  return executableName === "dsp" || executableName === "dsp.exe";
+}
 
-  return (
-    Array.isArray(value.hooks) &&
-    value.hooks.some((hook) => isSameInvocation(hook, invocation))
-  );
+function migrateUnrestrictedDispatchGroup(
+  value: unknown,
+  invocation: ClaudeHookInvocation,
+  retainHandler: boolean,
+): { readonly group: unknown | null; readonly foundManaged: boolean } {
+  if (
+    !isRecord(value) ||
+    hasMeaningfulMatcher(value.matcher) ||
+    !Array.isArray(value.hooks)
+  ) {
+    return { group: value, foundManaged: false };
+  }
+
+  let foundManaged = false;
+  let retained = false;
+  const hooks: unknown[] = [];
+  for (const hook of value.hooks) {
+    if (!isManagedDispatchCommandHook(hook, invocation)) {
+      hooks.push(hook);
+      continue;
+    }
+    foundManaged = true;
+    if (retainHandler && !retained) {
+      hooks.push(commandHook(invocation));
+      retained = true;
+    }
+  }
+
+  if (!foundManaged) return { group: value, foundManaged: false };
+  return {
+    group: hooks.length === 0 ? null : { ...value, hooks },
+    foundManaged: true,
+  };
 }
 
 function hasMeaningfulMatcher(value: unknown): boolean {
@@ -138,9 +165,10 @@ export function createClaudeHookEntries(
 /**
  * Merge Dispatch command hooks into an existing Claude settings object.
  *
- * The input is never mutated. Existing settings and hook groups are preserved,
- * and an existing unrestricted Dispatch handler is reused so the operation is
- * idempotent.
+ * The input is never mutated. Non-Dispatch settings and hook groups are
+ * preserved. Existing unrestricted Dispatch handlers are migrated to the
+ * requested invocation and collapsed to one handler, making installation both
+ * upgrade-safe and idempotent.
  */
 export function mergeClaudeHookSettings(
   settings: unknown,
@@ -167,12 +195,18 @@ export function mergeClaudeHookSettings(
       throw new TypeError(`Claude hook ${eventName} must be an array`);
     }
 
-    const groups = current === undefined ? [] : [...current];
-    if (
-      !groups.some((group) =>
-        isUnmatchedDispatchGroup(group, invocation),
-      )
-    ) {
+    let retainedDispatchHandler = false;
+    const groups: unknown[] = [];
+    for (const group of current === undefined ? [] : current) {
+      const migrated = migrateUnrestrictedDispatchGroup(
+        group,
+        invocation,
+        !retainedDispatchHandler,
+      );
+      if (migrated.foundManaged) retainedDispatchHandler = true;
+      if (migrated.group !== null) groups.push(migrated.group);
+    }
+    if (!retainedDispatchHandler) {
       groups.push({ hooks: [commandHook(invocation)] });
     }
     mergedHooks[eventName] = groups;

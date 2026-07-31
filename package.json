@@ -23,6 +23,7 @@
     "check": "bun run typecheck && bun run check:boundaries && bun test",
     "build": "bun run scripts/build.ts --host",
     "build:matrix": "bun run scripts/build.ts --matrix",
+    "qualify:binary": "bun run scripts/qualify-binary.ts",
     "probe": "bun run scripts/probe.ts"
   },
   "devDependencies": {

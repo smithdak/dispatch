@@ -13,6 +13,8 @@ import { mergeHookSettings } from "../adapters/registry";
 import { DispatchError } from "../core/errors";
 import type { Environment } from "../core/paths";
 
+declare const __DISPATCH_STANDALONE__: boolean;
+
 export type HookInstallScope = "user" | "project";
 
 export interface HookInstallResult {
@@ -30,6 +32,29 @@ export interface InstallClaudeHooksOptions {
   readonly projectPath?: string;
   readonly command?: string;
   readonly env?: Environment;
+  /** Injectable only for deterministic source-versus-standalone tests. */
+  readonly runtime?: {
+    readonly executablePath: string;
+    readonly standalone: boolean;
+  };
+}
+
+export function defaultClaudeHookCommand(runtime: {
+  readonly executablePath: string;
+  readonly standalone: boolean;
+} = {
+  executablePath: process.execPath,
+  standalone:
+    typeof __DISPATCH_STANDALONE__ !== "undefined" &&
+    __DISPATCH_STANDALONE__ === true,
+}): string {
+  // The build injects the standalone marker. Bun.main cannot identify this
+  // reliably because a compiled CLI retains the embedded `main.ts` path.
+  if (runtime.standalone) return resolve(runtime.executablePath);
+  throw new DispatchError(
+    "hooks.command_required",
+    "Source-mode hook installation requires --command with an absolute compiled dsp executable.",
+  );
 }
 
 function readSettings(path: string): Record<string, unknown> {
@@ -104,8 +129,10 @@ export function installClaudeHooks(
           "settings.local.json",
         );
   const existing = readSettings(path);
+  const command =
+    options.command ?? defaultClaudeHookCommand(options.runtime);
   const merged = mergeHookSettings("claude", existing, {
-    command: options.command ?? "dsp",
+    command,
     args: ["hook", "claude"],
   });
   const existingSerialized = JSON.stringify(existing);

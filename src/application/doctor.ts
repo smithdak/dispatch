@@ -15,6 +15,62 @@ export interface DoctorReport {
   readonly checks: readonly DoctorCheck[];
 }
 
+export const PINNED_BUN_VERSION = "1.3.14";
+export const LEGACY_WINDOWS_QUALIFIED_BUN_VERSION = "1.3.6";
+
+export function bunDoctorCheck(
+  version: string,
+  platform: NodeJS.Platform,
+  architecture: string,
+): DoctorCheck {
+  if (version === PINNED_BUN_VERSION) {
+    return { name: "bun", status: "ok", detail: PINNED_BUN_VERSION };
+  }
+
+  if (
+    version === LEGACY_WINDOWS_QUALIFIED_BUN_VERSION &&
+    platform === "win32" &&
+    architecture === "x64"
+  ) {
+    return {
+      name: "bun",
+      status: "warn",
+      detail: `${version}; locally qualified legacy Windows x64 runtime, release pin is ${PINNED_BUN_VERSION}`,
+    };
+  }
+
+  return {
+    name: "bun",
+    status: "fail",
+    detail: `${version}; ${PINNED_BUN_VERSION} is the release runtime; ${LEGACY_WINDOWS_QUALIFIED_BUN_VERSION} is qualified only on Windows x64`,
+  };
+}
+
+export function platformDoctorCheck(
+  platform: NodeJS.Platform,
+  architecture: string,
+): DoctorCheck {
+  if (platform === "win32" && architecture === "x64") {
+    return {
+      name: "platform",
+      status: "ok",
+      detail: `${platform}/${architecture}; primary v1 target`,
+    };
+  }
+  if (platform === "linux" && architecture === "x64") {
+    return {
+      name: "platform",
+      status: "ok",
+      detail: `${platform}/${architecture}; secondary v1 target`,
+    };
+  }
+  return {
+    name: "platform",
+    status: "fail",
+    detail: `${platform}/${architecture}; v1 targets Windows x64 and Linux x64`,
+  };
+}
+
 async function executableVersion(
   executable: string,
   args: readonly string[],
@@ -35,25 +91,8 @@ async function executableVersion(
 
 export async function diagnose(): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
-  const bunVersion = Bun.version;
-  checks.push({
-    name: "bun",
-    status: bunVersion === "1.3.14" ? "ok" : "fail",
-    detail:
-      bunVersion === "1.3.14"
-        ? "1.3.14"
-        : `${bunVersion}; repository pin is 1.3.14`,
-  });
-
-  const supportedPlatform =
-    process.platform === "darwin" || process.platform === "linux";
-  checks.push({
-    name: "platform",
-    status: supportedPlatform ? "ok" : "fail",
-    detail: supportedPlatform
-      ? `${process.platform}/${process.arch}`
-      : `${process.platform}/${process.arch}; v1 targets macOS and Linux`,
-  });
+  checks.push(bunDoctorCheck(Bun.version, process.platform, process.arch));
+  checks.push(platformDoctorCheck(process.platform, process.arch));
 
   const gitVersion = await executableVersion("git", ["--version"]);
   checks.push({
@@ -66,7 +105,11 @@ export async function diagnose(): Promise<DoctorReport> {
   checks.push({
     name: "tmux",
     status: tmuxVersion ? "ok" : "warn",
-    detail: tmuxVersion ?? "not found; required for Stage 1, not Stage 0",
+    detail:
+      tmuxVersion ??
+      (process.platform === "win32"
+        ? "not found; not required for Stage 0; native Windows orchestration is a Stage 1 decision"
+        : "not found; not required for Stage 0"),
   });
 
   const paths = resolveDispatchPaths();

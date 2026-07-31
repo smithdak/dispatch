@@ -117,13 +117,13 @@ export class SessionIndex {
     this.#database = new Database(this.path, { create: true, strict: true });
     try {
       this.#database.exec("PRAGMA busy_timeout = 2500;");
-    // Bun 1.3.6 retains WAL sidecar handles after Database.close() on Windows.
-    // Windows is not a v1 target, but DELETE mode keeps the test/development
-    // compatibility path deterministic without changing target behavior.
-    this.#database.exec(
-      `PRAGMA journal_mode = ${process.platform === "win32" ? "DELETE" : "WAL"};`,
-    );
-    this.#database.exec("PRAGMA synchronous = NORMAL;");
+      // Bun 1.3.6 retains WAL sidecar handles after Database.close() on Windows.
+      // DELETE mode is qualified on Windows with Bun 1.3.6 and 1.3.14 until
+      // pinned-runtime WAL close/reindex semantics are proven reliable.
+      this.#database.exec(
+        `PRAGMA journal_mode = ${process.platform === "win32" ? "DELETE" : "WAL"};`,
+      );
+      this.#database.exec("PRAGMA synchronous = NORMAL;");
 
     // A pre-release Stage 0 snapshot made worktree_key globally UNIQUE,
     // preventing a removed path from ever being reused. The index is

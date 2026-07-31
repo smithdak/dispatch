@@ -127,6 +127,38 @@ async function record(
   if (message) warnings.push(message);
 }
 
+function openOptionalProjection(
+  paths: DispatchPaths,
+  meta: SessionMeta,
+  warnings: string[],
+): SessionIndex | undefined {
+  let index: SessionIndex | undefined;
+  try {
+    index = new SessionIndex(paths.indexPath);
+    index.upsertSession(meta);
+    return index;
+  } catch (error) {
+    try {
+      index?.close();
+    } catch {
+      // Preserve the initialization/update failure that disabled projection.
+    }
+    warnings.push(`index projection failed: ${errorMessage(error)}`);
+    return undefined;
+  }
+}
+
+function closeOptionalProjection(
+  index: SessionIndex | undefined,
+  warnings: string[],
+): void {
+  try {
+    index?.close();
+  } catch (error) {
+    warnings.push(`index projection close failed: ${errorMessage(error)}`);
+  }
+}
+
 async function assertWorktreePathAvailable(
   paths: DispatchPaths,
   worktreePath: string,
@@ -402,9 +434,8 @@ async function mergeSessionLocked(
       });
   const stats = outcomeStats(history);
   const warnings: string[] = [];
-  const index = new SessionIndex(app.paths.indexPath);
+  const index = openOptionalProjection(app.paths, meta, warnings);
   try {
-    index.upsertSession(meta);
     if (!history.some((event) => event.kind === "git.merged")) {
       await record(
         app.paths,
@@ -469,7 +500,7 @@ async function mergeSessionLocked(
       );
     }
   } finally {
-    index.close();
+    closeOptionalProjection(index, warnings);
   }
 
   return { value: merged, meta, projectionWarnings: warnings };
@@ -541,9 +572,8 @@ async function removeSessionLocked(
     }
   }
   const warnings: string[] = [];
-  const index = new SessionIndex(app.paths.indexPath);
+  const index = openOptionalProjection(app.paths, meta, warnings);
   try {
-    index.upsertSession(meta);
     if (
       removed.wasDirty &&
       !history.some((event) => event.kind === "git.discarded")
@@ -599,7 +629,7 @@ async function removeSessionLocked(
       );
     }
   } finally {
-    index.close();
+    closeOptionalProjection(index, warnings);
   }
 
   return { value: removed, meta, projectionWarnings: warnings };

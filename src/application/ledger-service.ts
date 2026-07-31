@@ -187,11 +187,18 @@ function containsPath(parent: string, candidate: string): boolean {
 export async function resolveSessionMetaByPath(
   paths: DispatchPaths,
   cwd: string,
-  existingIndex?: SessionIndex,
+  existingIndex?: SessionIndex | null,
 ): Promise<SessionMeta | null> {
-  const index = existingIndex ?? new SessionIndex(paths.indexPath);
+  // `null` deliberately bypasses the disposable projection. Hooks use this
+  // path when SQLite is corrupt, locked, or otherwise unavailable so event
+  // capture can still resolve against authoritative metadata and ledgers.
+  const index =
+    existingIndex === null
+      ? undefined
+      : (existingIndex ?? new SessionIndex(paths.indexPath));
+  const ownsIndex = existingIndex === undefined;
   try {
-    const projected = index.resolveByPath(cwd);
+    const projected = index?.resolveByPath(cwd);
     if (projected) return readSessionMeta(paths, projected.sid);
 
     // A deleted projection is recoverable without making a hook depend on a
@@ -220,11 +227,11 @@ export async function resolveSessionMetaByPath(
       if (replay.records.some((event) => event.kind === "worktree.removed")) {
         continue;
       }
-      index.restoreSession(fallback, replay.records);
+      index?.restoreSession(fallback, replay.records);
       return fallback;
     }
     return null;
   } finally {
-    if (!existingIndex) index.close();
+    if (ownsIndex) index?.close();
   }
 }
