@@ -21,6 +21,11 @@ terminal generation before reuse, and a fresh command ran after every restart. T
 remains an alpha slice: private prompt delivery, layouts, concurrent mutation stress,
 native agent-conversation restore, and sustained daily use remain open.
 
+The current source candidate adds private, stdin-only prompt submission over Herdr's
+Windows named pipe. It has source-level tests but is not part of alpha.2 and is not a
+release-qualified claim until a compiled Windows artifact passes the dedicated prompt
+profile.
+
 ## Requirements
 
 - Windows x64 (primary v1 target) or Linux x64 (secondary target)
@@ -132,9 +137,33 @@ an atomic close guarantee. Reopening that Dispatch session is intentionally forb
 If Herdr is not on `PATH`, set `DISPATCH_HERDR_BIN` to the absolute `herdr.exe` path for
 the invocation. Set `DISPATCH_HERDR_SESSION` to select a named Herdr session; the default
 is `default`, and a persisted V2 receipt must match the selected live session and socket.
-Prompting is deliberately absent: passing prompt text to `herdr agent
-prompt` would expose it in process argv. A later raw named-pipe increment must solve that
-without weakening unknown-outcome handling.
+
+Private prompting never forwards the body to `herdr agent prompt`, where it would be
+visible in process argv. It accepts one idle-agent prompt from piped stdin and sends one
+correlated `agent.prompt` request over the receipted server's Windows named pipe:
+
+```powershell
+Get-Content -Raw .\prompt.txt | .\dist\dsp.exe prompt <sid> --stdin
+```
+
+The alpha boundary is deliberately narrow: one line of UTF-8, no terminal control
+characters, and at most 128 KiB. Dispatch removes one terminal CRLF/LF introduced by the
+pipe. Interactive TTY input and prompt bodies in positionals or options are rejected.
+The ledger stores body-free intent and accepted/rejected/unknown receipts under
+`agent.state`; it stores neither the body nor a hash or length. Acceptance means Herdr
+queued the text and scheduled Enter, not that the agent consumed or completed it.
+
+An outcome becomes unknown after any uncertain post-write failure or mismatched receipt.
+Dispatch blocks later prompt, focus, close, merge, and remove mutations and never retries
+automatically. After independently checking the terminal and accepting possible omission
+or duplication, resolve the barrier explicitly:
+
+```powershell
+.\dist\dsp.exe prompt <sid> --acknowledge-unknown <prompt-id>
+```
+
+See [ADR 0005](docs/decisions/0005-private-herdr-prompt-transport.md) for the transport,
+locking, privacy, and residual-TOCTOU contract.
 
 For the destructive full-lifecycle qualification, create a dedicated fresh session and
 pass both explicit mutation flags:
@@ -293,9 +322,11 @@ arch.md                    architecture specification v0.3
   exception rather than an unmeasured claim.
 - Stage 1: Herdr is selected and the namespace-bound `open` / `status` / `close`
   lifecycle plus five-cycle cold-restart recovery are implemented and qualified against
-  the exact published Windows artifact. Prompt privacy, layouts, concurrent mutation
-  stress, native agent-conversation restore, and the two-week daily-driver displacement
-  test remain open; Stage 1 is not complete.
+  the exact published Windows artifact. Private stdin-to-named-pipe prompting is
+  implemented and source-tested but still needs compiled native and exact-release-artifact
+  qualification. Multiline input, layouts, concurrent mutation stress, native
+  agent-conversation restore, and the two-week daily-driver displacement test remain
+  open; Stage 1 is not complete.
 - Stage 2: only the filesystem probe harness exists; no provisioning engine ships before
   the O3 divergence-safety spike.
 - Stage 3: merge outcomes and a basic history skill exist; review handoff and richer
@@ -353,6 +384,7 @@ use.
   to the [`v0.2.0-alpha.2` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.2),
   and the sanitized receipt is retained in
   [`stage1-release-runtime-evidence-43fb9766.json`](docs/qualification/stage1-release-runtime-evidence-43fb9766.json).
-- Stage 1 remains alpha: prompt transport, concurrent focus-change stress,
-  closed-workspace ID reuse stress, atomic snapshot-to-close fencing, native
-  agent-conversation restore, and sustained daily-driver proof remain open.
+- Stage 1 remains alpha: compiled and exact-release-artifact prompt qualification,
+  multiline prompts, concurrent focus-change stress, closed-workspace ID reuse stress,
+  atomic snapshot-to-mutation fencing, native agent-conversation restore, and sustained
+  daily-driver proof remain open.

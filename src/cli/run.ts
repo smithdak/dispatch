@@ -6,8 +6,11 @@ import type { Environment } from "../core/paths";
 import { diagnose } from "../application/doctor";
 import { installClaudeHooks } from "../application/hook-settings";
 import {
+  acknowledgeUnknownPrompt,
   closeTerminalSession,
   openTerminalSession,
+  PRIVATE_PROMPT_MAX_UTF8_BYTES,
+  promptTerminalSession,
   terminalSessionStatus,
 } from "../application/orchestration";
 import {
@@ -18,7 +21,11 @@ import {
   removeSession,
   sessionLog,
 } from "../application/sessions";
-import { MuxError, type MuxPort } from "../ports/mux";
+import {
+  MuxError,
+  type MuxPort,
+  type MuxPromptPort,
+} from "../ports/mux";
 import {
   booleanOption,
   integerOption,
@@ -28,7 +35,7 @@ import {
   UsageError,
 } from "./args";
 
-export const DISPATCH_VERSION = "0.2.0-alpha.2";
+export const DISPATCH_VERSION = "0.2.0-alpha.3";
 
 const HELP = `Dispatch — durable agentic work sessions
 
@@ -41,6 +48,8 @@ Usage:
   dsp open <sid> [--recover-restored-terminal] [--json]
   dsp status <sid> [--json]
   dsp close <sid> [--recover-restored-terminal] [--json]
+  dsp prompt <sid> --stdin [--acknowledge-unknown <prompt-id>] [--json]
+  dsp prompt <sid> --acknowledge-unknown <prompt-id> [--json]
   dsp reindex [--json]
   dsp hooks install claude [--project <path>] [--command <path>] [--json]
   dsp doctor [--stage1] [--json]
@@ -49,6 +58,9 @@ Usage:
 Hook installation defaults to Claude user scope (~/.claude/settings.json).
 --project installs only in that project's .claude/settings.local.json and is
 not inherited by future Dispatch worktrees.
+
+Private prompts are accepted only from piped stdin. Prompt bodies are never
+accepted as positional arguments or option values.
 
 The provider-facing fast path is: dsp hook claude`;
 
@@ -301,6 +313,113 @@ async function runClose(
   );
 }
 
+const PRIVATE_PROMPT_STDIN_LIMIT = PRIVATE_PROMPT_MAX_UTF8_BYTES + 2;
+
+async function readStandardInput(): Promise<string> {
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  for await (const chunk of process.stdin) {
+    const bytes = typeof chunk === "string"
+      ? new TextEncoder().encode(chunk)
+      : new Uint8Array(chunk as Uint8Array);
+    totalBytes += bytes.byteLength;
+    if (totalBytes > PRIVATE_PROMPT_STDIN_LIMIT) {
+      throw new DispatchError(
+        "session.prompt_invalid",
+        `Private prompt stdin exceeds the ${PRIVATE_PROMPT_MAX_UTF8_BYTES}-byte limit.`,
+        { maxBytes: PRIVATE_PROMPT_MAX_UTF8_BYTES },
+      );
+    }
+    chunks.push(bytes);
+  }
+  const joined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(joined);
+  } catch (error) {
+    throw new DispatchError(
+      "session.prompt_invalid",
+      "Private prompt stdin must be valid UTF-8.",
+      {},
+      { cause: error },
+    );
+  }
+}
+
+function oneLinePromptFromStdin(value: string): string {
+  if (value.endsWith("\r\n")) return value.slice(0, -2);
+  if (value.endsWith("\n")) return value.slice(0, -1);
+  return value;
+}
+
+async function runPrompt(
+  args: readonly string[],
+  loadMux: () => Promise<MuxPort & MuxPromptPort>,
+  env: Environment,
+  readStdin: () => Promise<string>,
+  stdinIsTTY: boolean,
+  writeLine: (value: string) => void,
+): Promise<void> {
+  const parsed = parseArguments(args, {
+    stdin: { type: "boolean" },
+    "acknowledge-unknown": { type: "string" },
+    json: { type: "boolean" },
+  });
+  requirePositionals(
+    parsed,
+    1,
+    1,
+    "dsp prompt <sid> --stdin [--acknowledge-unknown <prompt-id>] [--json]",
+  );
+  const sid = parsed.positionals[0]!;
+  const fromStdin = booleanOption(parsed, "stdin");
+  const acknowledgement = stringOption(parsed, "acknowledge-unknown");
+  if (!fromStdin && acknowledgement === undefined) {
+    throw new UsageError(
+      "dsp prompt requires --stdin or --acknowledge-unknown <prompt-id>.",
+    );
+  }
+
+  if (!fromStdin) {
+    const result = await acknowledgeUnknownPrompt(sid, acknowledgement!, {
+      env,
+    });
+    reportProjectionWarnings(result.projectionWarnings);
+    if (booleanOption(parsed, "json")) {
+      writeLine(JSON.stringify(result, null, 2));
+    } else {
+      writeLine(
+        `${result.sid}\tprompt_unknown_acknowledged\t${result.promptId}`,
+      );
+    }
+    return;
+  }
+  if (stdinIsTTY) {
+    throw new UsageError(
+      "Private prompt stdin must be piped; interactive terminal input is not accepted.",
+    );
+  }
+  const text = oneLinePromptFromStdin(await readStdin());
+  const result = await promptTerminalSession(sid, text, await loadMux(), {
+    env,
+    ...(acknowledgement === undefined
+      ? {}
+      : { acknowledgeUnknownPromptId: acknowledgement }),
+  });
+  reportProjectionWarnings(result.projectionWarnings);
+  if (booleanOption(parsed, "json")) {
+    writeLine(JSON.stringify(result, null, 2));
+  } else {
+    writeLine(
+      `${result.sid}\tprompt_accepted\t${result.promptId}\t${result.target.workspaceId}`,
+    );
+  }
+}
+
 async function runReindex(args: readonly string[]): Promise<void> {
   const parsed = parseArguments(args, { json: { type: "boolean" } });
   requirePositionals(parsed, 0, 0, "dsp reindex [--json]");
@@ -385,7 +504,9 @@ export async function runCli(
   runtime: {
     readonly env?: Environment;
     readonly stdout?: (value: string) => void;
-    readonly mux?: MuxPort;
+    readonly mux?: MuxPort & MuxPromptPort;
+    readonly readStdin?: () => Promise<string>;
+    readonly stdinIsTTY?: boolean;
   } = {},
 ): Promise<number> {
   if (args.length === 0 || args[0] === "--help" || args[0] === "help") {
@@ -398,7 +519,7 @@ export async function runCli(
   }
 
   try {
-    const orchestrationMux = async (): Promise<MuxPort> => {
+    const orchestrationMux = async (): Promise<MuxPort & MuxPromptPort> => {
       if (runtime.mux) return runtime.mux;
       const { loadMuxPort } = await import("../adapters/registry");
       return loadMuxPort(runtime.env ?? process.env);
@@ -438,6 +559,17 @@ export async function runCli(
           args.slice(1),
           orchestrationMux,
           runtime.env ?? process.env,
+        );
+        return 0;
+      case "prompt":
+        await runPrompt(
+          args.slice(1),
+          orchestrationMux,
+          runtime.env ?? process.env,
+          runtime.readStdin ?? readStandardInput,
+          runtime.stdinIsTTY ??
+            (runtime.readStdin === undefined && Boolean(process.stdin.isTTY)),
+          runtime.stdout ?? console.log,
         );
         return 0;
       case "reindex":

@@ -88,6 +88,26 @@ export interface MuxCloseResult {
   readonly target: MuxTarget;
 }
 
+/**
+ * One private prompt submission to an already-receipted terminal generation.
+ *
+ * `text` is an ephemeral transport value. Implementations must not place it in
+ * process argv, environment variables, durable receipts, or error details.
+ * `promptId` is caller-assigned so the durable intent and Herdr wire request
+ * can use one correlation identity.
+ */
+export interface MuxPromptRequest {
+  readonly promptId: string;
+  readonly target: MuxTargetV2;
+  readonly text: string;
+}
+
+export interface MuxPromptResult {
+  readonly promptId: string;
+  readonly target: MuxTargetV2;
+  readonly agentStatus: string;
+}
+
 export type MuxErrorCode =
   | "ambiguous"
   | "conflict"
@@ -120,4 +140,14 @@ export interface MuxPort {
   status(target: MuxTarget): Promise<MuxStatus>;
   reconnect(target: MuxTarget): Promise<MuxStatus>;
   close(target: MuxTarget): Promise<MuxCloseResult>;
+}
+
+/**
+ * Prompting is a separate capability so lifecycle-only mux fakes and backends
+ * do not accidentally claim a private input transport. Implementations must
+ * throw `MuxError("outcome_unknown", ...)` whenever zero backend mutation
+ * cannot be proved, including for structured errors returned after a write.
+ */
+export interface MuxPromptPort {
+  prompt(request: MuxPromptRequest): Promise<MuxPromptResult>;
 }

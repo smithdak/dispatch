@@ -48,6 +48,7 @@ import {
   writeSessionMeta,
   type SessionMeta,
 } from "./session-meta";
+import { assertNoUnresolvedPrompt } from "./prompt-receipts";
 
 export interface ApplicationContextOptions {
   readonly paths?: DispatchPaths;
@@ -408,6 +409,7 @@ async function mergeSessionLocked(
   config: DispatchConfig,
 ): Promise<SessionMutationResult<MergedWorktree>> {
   const history = await readSessionHistory(app.paths, meta.sid);
+  assertNoUnresolvedPrompt(history, "merging the session");
   const outcomeRecorded = hasOutcome(history);
   const sessionClosed = history.some(
     (event) => event.kind === "session.closed",
@@ -528,6 +530,7 @@ async function removeSessionLocked(
   force: boolean,
 ): Promise<SessionMutationResult<RemovedWorktree>> {
   const history = await readSessionHistory(app.paths, meta.sid);
+  assertNoUnresolvedPrompt(history, "removing the session");
   let removed: RemovedWorktree;
   const removalRecorded = history.some(
     (event) => event.kind === "worktree.removed",

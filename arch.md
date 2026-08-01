@@ -1,16 +1,19 @@
-# Dispatch — Architecture Specification v0.3
+# Dispatch — Architecture Specification v0.4
 
-**Revision scope:** preserves v0.2's full-ownership thesis, records the qualified Stage 0
-prerelease, and resolves the native Windows mux decision in favor of a bounded Herdr
-adapter. Dispatch still owns worktrees, session identity, policy, and durable history;
-Herdr owns terminal rendering and retained terminal processes.
+**Revision scope:** extends v0.3's bounded native Windows Herdr lifecycle with a
+receipt-first private prompt transport. Dispatch still owns worktrees, session identity,
+policy, and durable history; Herdr owns terminal rendering and retained terminal
+processes.
 
 **Spec date:** 2026-07-31
 **Targets:** Windows x64 primary; Linux x64 secondary. macOS deferred pending path
 canonicalization. This target amendment and the Stage 1 mux reset are recorded in
 [`ADR 0002`](docs/decisions/0002-windows-primary-target.md); the backend decision and
 receipt model are recorded in
-[`ADR 0003`](docs/decisions/0003-herdr-windows-orchestration.md).
+[`ADR 0003`](docs/decisions/0003-herdr-windows-orchestration.md), namespace and
+restart recovery in [`ADR 0004`](docs/decisions/0004-herdr-namespaces-and-restart-generations.md),
+and the private prompt boundary in
+[`ADR 0005`](docs/decisions/0005-private-herdr-prompt-transport.md).
 **As-of basis:** version pins verified 2026-07-31. See Appendix A.
 **Working name:** `dispatch`, binary `dsp`. Unresolved — see O2.
 
@@ -410,6 +413,7 @@ Verified 2026-07-30 unless noted.
 
 ---
 
-_v0.3 — Stage 0 released; Herdr selected for the first native Windows lifecycle slice.
-The full Stage 1 dogfood gate remains open until private prompt delivery, restart
-resilience, and sustained daily use are proved._
+_v0.4 — Stage 0 released; Herdr lifecycle and exact-artifact restart recovery qualified;
+private Windows named-pipe prompting implemented and source-tested. The full Stage 1
+dogfood gate remains open until compiled prompt delivery, layouts, concurrent mutation
+stress, native conversation recovery, and sustained daily use are proved._

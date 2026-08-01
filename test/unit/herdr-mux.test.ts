@@ -2,10 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import {
   HERDR_PROTOCOL,
+  HERDR_SOCKET_MAX_LINE_BYTES,
+  HerdrSocketRequestError,
   createHerdrMux,
   type HerdrProcessInvocation,
   type HerdrProcessResult,
   type HerdrProcessRunner,
+  type HerdrSocketInvocation,
+  type HerdrSocketRequester,
 } from "../../src/adapters/mux-windows/herdr";
 import {
   MUX_TARGET_LEGACY_VERSION,
@@ -48,6 +52,28 @@ function scripted(...initialSteps: ScriptStep[]): {
     return typeof step === "function" ? step(invocation) : step;
   };
   return { runner, invocations, remaining: () => steps.length };
+}
+
+type SocketStep =
+  | unknown
+  | Error
+  | ((invocation: HerdrSocketInvocation) => unknown | Promise<unknown>);
+
+function scriptedSocket(...initialSteps: SocketStep[]): {
+  readonly requester: HerdrSocketRequester;
+  readonly invocations: HerdrSocketInvocation[];
+  readonly remaining: () => number;
+} {
+  const steps = [...initialSteps];
+  const invocations: HerdrSocketInvocation[] = [];
+  const requester: HerdrSocketRequester = async (invocation) => {
+    invocations.push(invocation);
+    const step = steps.shift();
+    if (step === undefined) throw new Error("Unexpected socket request.");
+    if (step instanceof Error) throw step;
+    return typeof step === "function" ? step(invocation) : step;
+  };
+  return { requester, invocations, remaining: () => steps.length };
 }
 
 function ok(payload: unknown): HerdrProcessResult {
@@ -210,6 +236,35 @@ function liveSnapshot(focused = false): unknown {
     [tab()],
     [pane()],
   );
+}
+
+function promptedAgent(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    workspace_id: "wA",
+    tab_id: "wA:tA",
+    pane_id: "wA:pA",
+    terminal_id: "term_wA",
+    agent_status: "working",
+    focused: true,
+    revision: 4,
+    state_change_seq: 9,
+    interactive_ready: true,
+    launch_pending: false,
+    screen_detection_skipped: false,
+    ...overrides,
+  };
+}
+
+function promptedPayload(
+  promptId: string,
+  agent: Record<string, unknown> = promptedAgent(),
+): unknown {
+  return {
+    id: promptId,
+    result: { type: "agent_prompted", agent },
+  };
 }
 
 async function muxError(
@@ -777,14 +832,363 @@ describe("Herdr Windows mux adapter", () => {
     );
   });
 
-  test("does not implement prompting or shell-text execution", () => {
+  test("submits private prompts over one correlated named-pipe NDJSON request after exact status preflight", async () => {
+    const promptId = "prompt-01ky-private";
+    const privateText = "PRIVATE_PROMPT_CONTENT_DO_NOT_RECORD\nUnicode: 🧪";
+    const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+    const socket = scriptedSocket((invocation: HerdrSocketInvocation) => {
+      expect(invocation.pipePath).toBe(
+        `\\\\.\\pipe\\${serverNamespace.socket}`,
+      );
+      expect(invocation.requestLine.endsWith("\n")).toBe(true);
+      expect(invocation.requestLine.match(/\n/g)).toHaveLength(1);
+      const request = JSON.parse(invocation.requestLine) as Record<string, unknown>;
+      expect(request).toEqual({
+        id: promptId,
+        method: "agent.prompt",
+        params: { target: "wA:pA", text: privateText },
+      });
+      expect((request.params as Record<string, unknown>).wait).toBeUndefined();
+      return promptedPayload(promptId);
+    });
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    await expect(
+      mux.prompt({ promptId, target: target(), text: privateText }),
+    ).resolves.toEqual({
+      promptId,
+      target: target(),
+      agentStatus: "working",
+    });
+    expect(process.invocations).toHaveLength(2);
+    expect(
+      process.invocations.some((invocation) =>
+        invocation.args.some((argument) => argument.includes(privateText))
+      ),
+    ).toBe(false);
+    expect(process.invocations.map((invocation) => invocation.args)).toEqual([
+      ["--session", "default", "status", "--json"],
+      ["--session", "default", "api", "snapshot"],
+    ]);
+    expect(socket.invocations).toHaveLength(1);
+    expect(process.remaining()).toBe(0);
+    expect(socket.remaining()).toBe(0);
+  });
+
+  test("rejects legacy prompt targets before process or socket I/O", async () => {
+    const process = scripted();
+    const socket = scriptedSocket();
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    await muxError(
+      mux.prompt({
+        promptId: "prompt-legacy",
+        target: legacyTarget() as never,
+        text: "never sent",
+      }),
+      "incompatible",
+    );
+    expect(process.invocations).toHaveLength(0);
+    expect(socket.invocations).toHaveLength(0);
+  });
+
+  test("does not write a prompt when full-generation preflight conflicts", async () => {
+    const process = scripted(
+      ok(statusPayload()),
+      ok(
+        snapshotPayload(
+          [workspace()],
+          [tab()],
+          [pane("wA", "wA:tA", "wA:pA", "term_foreign")],
+        ),
+      ),
+    );
+    const socket = scriptedSocket();
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    await muxError(
+      mux.prompt({
+        promptId: "prompt-preflight-conflict",
+        target: target(),
+        text: "never sent",
+      }),
+      "conflict",
+    );
+    expect(socket.invocations).toHaveLength(0);
+  });
+
+  test("rechecks idle agent state immediately before private prompt mutation", async () => {
+    const busyPane = {
+      ...(pane() as Record<string, unknown>),
+      agent_status: "working",
+    };
+    const process = scripted(
+      ok(statusPayload()),
+      ok(snapshotPayload([workspace()], [tab()], [busyPane])),
+    );
+    const socket = scriptedSocket();
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    await muxError(
+      mux.prompt({
+        promptId: "prompt-agent-became-busy",
+        target: target(),
+        text: "never sent",
+      }),
+      "conflict",
+    );
+    expect(socket.invocations).toHaveLength(0);
+  });
+
+  test("returns outcome_unknown without retry after a post-write transport failure", async () => {
+    const privateText = "PRIVATE_POST_WRITE_BODY";
+    const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+    const socket = scriptedSocket(
+      new HerdrSocketRequestError("read", true),
+    );
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    const error = await muxError(
+      mux.prompt({
+        promptId: "prompt-post-write",
+        target: target(),
+        text: privateText,
+      }),
+      "outcome_unknown",
+    );
+    expect(socket.invocations).toHaveLength(1);
+    expect(JSON.stringify({ message: error.message, details: error.details }))
+      .not.toContain(privateText);
+  });
+
+  test("classifies a proven pre-write connection failure as unavailable", async () => {
+    const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+    const socket = scriptedSocket(
+      new HerdrSocketRequestError("connect", false),
+    );
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    await muxError(
+      mux.prompt({
+        promptId: "prompt-connect-failure",
+        target: target(),
+        text: "not written",
+      }),
+      "unavailable",
+    );
+    expect(socket.invocations).toHaveLength(1);
+  });
+
+  test("redacts structured Herdr prompt failures", async () => {
+    const privateText = "PRIVATE_REJECTED_BODY";
+    const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+    const socket = scriptedSocket({
+      id: "prompt-rejected",
+      error: {
+        code: "agent_not_ready",
+        message: `rejected ${privateText}`,
+      },
+    });
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    const error = await muxError(
+      mux.prompt({
+        promptId: "prompt-rejected",
+        target: target(),
+        text: privateText,
+      }),
+      "conflict",
+    );
+    expect(JSON.stringify({ message: error.message, details: error.details }))
+      .not.toContain(privateText);
+    expect(error.details).toMatchObject({ herdrCode: "agent_not_ready" });
+    expect(socket.invocations).toHaveLength(1);
+  });
+
+  test("treats phase-ambiguous structured Herdr prompt errors as outcome_unknown", async () => {
+    for (const code of [
+      "agent_not_found",
+      "agent_target_ambiguous",
+      "server_unavailable",
+      "internal_error",
+      "future_prompt_error",
+    ]) {
+      const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+      const socket = scriptedSocket({
+        id: "prompt-ambiguous-domain-error",
+        error: { code, message: "request failed" },
+      });
+      const mux = createHerdrMux({
+        executable,
+        runner: process.runner,
+        socketRequester: socket.requester,
+      });
+
+      const error = await muxError(
+        mux.prompt({
+          promptId: "prompt-ambiguous-domain-error",
+          target: target(),
+          text: "must-not-be-retried",
+        }),
+        "outcome_unknown",
+      );
+      expect(error.details).toMatchObject({
+        herdrCode: code,
+        stage: "domain_response",
+      });
+      expect(socket.invocations).toHaveLength(1);
+    }
+  });
+
+  test("permits retry only for the pinned zero-write Herdr prompt errors", async () => {
+    for (const [code, expected] of [
+      ["empty_agent_prompt", "invalid_response"],
+      ["agent_not_ready", "conflict"],
+      ["agent_prompt_failed", "unavailable"],
+    ] as const) {
+      const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+      const socket = scriptedSocket({
+        id: "prompt-zero-write-domain-error",
+        error: { code, message: "request rejected before terminal input" },
+      });
+      const mux = createHerdrMux({
+        executable,
+        runner: process.runner,
+        socketRequester: socket.requester,
+      });
+
+      const error = await muxError(
+        mux.prompt({
+          promptId: "prompt-zero-write-domain-error",
+          target: target(),
+          text: "safe-to-retry-after-rejection",
+        }),
+        expected,
+      );
+      expect(error.details).toMatchObject({ herdrCode: code });
+      expect(socket.invocations).toHaveLength(1);
+    }
+  });
+
+  test("does not retain an untrusted Herdr error code as prompt error details", async () => {
+    const privateText = "PRIVATE_ERROR_CODE_BODY_MUST_NOT_SURVIVE";
+    const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+    const socket = scriptedSocket({
+      id: "prompt-untrusted-error-code",
+      error: { code: privateText, message: "rejected" },
+    });
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+
+    const error = await muxError(
+      mux.prompt({
+        promptId: "prompt-untrusted-error-code",
+        target: target(),
+        text: privateText,
+      }),
+      "outcome_unknown",
+    );
+    expect(JSON.stringify({ message: error.message, details: error.details }))
+      .not.toContain(privateText);
+    expect(socket.invocations).toHaveLength(1);
+  });
+
+  test("treats mismatched or malformed post-write agent receipts as outcome_unknown", async () => {
+    for (const response of [
+      promptedPayload("another-prompt"),
+      promptedPayload(
+        "prompt-bad-receipt",
+        promptedAgent({ terminal_id: "term_foreign" }),
+      ),
+      {
+        id: "prompt-bad-receipt",
+        result: {
+          type: "agent_prompted",
+          agent: promptedAgent({ interactive_ready: null }),
+        },
+      },
+    ]) {
+      const process = scripted(ok(statusPayload()), ok(liveSnapshot()));
+      const socket = scriptedSocket(response);
+      const mux = createHerdrMux({
+        executable,
+        runner: process.runner,
+        socketRequester: socket.requester,
+      });
+      await muxError(
+        mux.prompt({
+          promptId: "prompt-bad-receipt",
+          target: target(),
+          text: "possibly accepted",
+        }),
+        "outcome_unknown",
+      );
+      expect(socket.invocations).toHaveLength(1);
+    }
+  });
+
+  test("rejects oversized private request lines before process or socket I/O", async () => {
+    const process = scripted();
+    const socket = scriptedSocket();
+    const mux = createHerdrMux({
+      executable,
+      runner: process.runner,
+      socketRequester: socket.requester,
+    });
+    const error = await muxError(
+      mux.prompt({
+        promptId: "prompt-too-large",
+        target: target(),
+        text: "x".repeat(HERDR_SOCKET_MAX_LINE_BYTES),
+      }),
+      "invalid_response",
+    );
+    expect(error.details).toEqual({
+      maxRequestBytes: HERDR_SOCKET_MAX_LINE_BYTES,
+    });
+    expect(process.invocations).toHaveLength(0);
+    expect(socket.invocations).toHaveLength(0);
+  });
+
+  test("implements private prompting but not shell-text execution", () => {
     const mux = createHerdrMux({
       executable,
       runner: async () => {
         throw new Error("not called");
       },
     });
-    expect("prompt" in mux).toBe(false);
+    expect("prompt" in mux).toBe(true);
     expect("run" in mux).toBe(false);
   });
 

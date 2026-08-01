@@ -1,4 +1,5 @@
 import { isAbsolute, normalize, parse, win32 } from "node:path";
+import { createConnection } from "node:net";
 
 import {
   MUX_TARGET_LEGACY_VERSION,
@@ -11,14 +12,20 @@ import {
   type MuxEnsureRequest,
   type MuxEnsureResult,
   type MuxPort,
+  type MuxPromptPort,
+  type MuxPromptRequest,
+  type MuxPromptResult,
   type MuxStatus,
   type MuxTarget,
+  type MuxTargetV2,
   type MuxServerNamespace,
 } from "../../ports/mux";
 
 export const HERDR_PROTOCOL = 18;
 export const HERDR_LABEL_PREFIX = "dispatch:";
 export const DEFAULT_HERDR_SESSION = "default";
+export const HERDR_SOCKET_TIMEOUT_MS = 10_000;
+export const HERDR_SOCKET_MAX_LINE_BYTES = 1_048_576;
 
 export interface HerdrProcessInvocation {
   readonly executable: string;
@@ -36,9 +43,45 @@ export type HerdrProcessRunner = (
   invocation: HerdrProcessInvocation,
 ) => Promise<HerdrProcessResult>;
 
+export interface HerdrSocketInvocation {
+  /** Platform-native Windows named-pipe path. */
+  readonly pipePath: string;
+  /** Exactly one UTF-8 JSON request followed by one newline. */
+  readonly requestLine: string;
+}
+
+export type HerdrSocketRequester = (
+  invocation: HerdrSocketInvocation,
+) => Promise<unknown>;
+
+export type HerdrSocketFailureStage =
+  | "connect"
+  | "write"
+  | "read"
+  | "timeout"
+  | "response_too_large"
+  | "invalid_response";
+
+/**
+ * Body-free transport failure metadata. Once a write is attempted, the
+ * server may have accepted a prompt even if no usable response is observed.
+ */
+export class HerdrSocketRequestError extends Error {
+  readonly stage: HerdrSocketFailureStage;
+  readonly mayHaveWritten: boolean;
+
+  constructor(stage: HerdrSocketFailureStage, mayHaveWritten: boolean) {
+    super(`Herdr socket request failed during ${stage}.`);
+    this.name = "HerdrSocketRequestError";
+    this.stage = stage;
+    this.mayHaveWritten = mayHaveWritten;
+  }
+}
+
 export interface HerdrMuxOptions {
   readonly executable?: string;
   readonly runner?: HerdrProcessRunner;
+  readonly socketRequester?: HerdrSocketRequester;
   readonly session?: string;
 }
 
@@ -77,6 +120,85 @@ const defaultRunner: HerdrProcessRunner = async (invocation) => {
   ]);
   return { exitCode, stdout, stderr };
 };
+
+const defaultSocketRequester: HerdrSocketRequester = async (invocation) =>
+  new Promise<unknown>((resolve, reject) => {
+    let settled = false;
+    let mayHaveWritten = false;
+    let response = "";
+    let responseBytes = 0;
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+
+    const fail = (stage: HerdrSocketFailureStage): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(new HerdrSocketRequestError(stage, mayHaveWritten));
+    };
+
+    const acceptLine = (): void => {
+      const newline = response.indexOf("\n");
+      if (newline < 0 || settled) return;
+      const line = response.slice(0, newline);
+      let payload: unknown;
+      try {
+        payload = JSON.parse(line) as unknown;
+      } catch {
+        fail("invalid_response");
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      resolve(payload);
+    };
+
+    const socket = createConnection(invocation.pipePath);
+    socket.setTimeout(HERDR_SOCKET_TIMEOUT_MS);
+    socket.once("connect", () => {
+      // A callback error cannot prove that zero bytes crossed the pipe.
+      mayHaveWritten = true;
+      try {
+        socket.write(invocation.requestLine, "utf8", (error) => {
+          if (error) fail("write");
+        });
+      } catch {
+        fail("write");
+      }
+    });
+    socket.on("data", (chunk: Buffer) => {
+      if (settled) return;
+      responseBytes += chunk.byteLength;
+      if (responseBytes > HERDR_SOCKET_MAX_LINE_BYTES) {
+        fail("response_too_large");
+        return;
+      }
+      try {
+        response += decoder.decode(chunk, { stream: true });
+      } catch {
+        fail("invalid_response");
+        return;
+      }
+      acceptLine();
+    });
+    socket.once("timeout", () => fail("timeout"));
+    socket.once("error", () =>
+      fail(mayHaveWritten ? "read" : "connect")
+    );
+    socket.once("close", () => {
+      if (!settled) fail(mayHaveWritten ? "read" : "connect");
+    });
+    socket.once("end", () => {
+      if (settled) return;
+      try {
+        response += decoder.decode();
+      } catch {
+        fail("invalid_response");
+        return;
+      }
+      acceptLine();
+      if (!settled) fail("read");
+    });
+  });
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -443,9 +565,216 @@ function targetConflict(
   );
 }
 
-export class HerdrMuxAdapter implements MuxPort {
+const HERDR_AGENT_STATUSES = new Set([
+  "idle",
+  "working",
+  "blocked",
+  "done",
+  "unknown",
+]);
+const HERDR_PROMPT_ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/u;
+const HERDR_PROMPT_ZERO_WRITE_ERROR_CODES = new Set([
+  "empty_agent_prompt",
+  "agent_not_ready",
+  "agent_prompt_failed",
+]);
+
+type PromptEnvelope =
+  | { readonly kind: "success"; readonly result: JsonRecord }
+  | { readonly kind: "error"; readonly code: string };
+
+function nativeWindowsPipePath(logicalSocket: string): string {
+  return `\\\\.\\pipe\\${logicalSocket}`;
+}
+
+function promptRequestLine(request: MuxPromptRequest): string {
+  if (
+    request.promptId.length === 0 ||
+    request.promptId.length > 256 ||
+    request.promptId.includes("\0") ||
+    /[\r\n]/.test(request.promptId)
+  ) {
+    throw new MuxError(
+      "invalid_response",
+      "Prompt correlation ID must be a non-empty single-line value of at most 256 characters.",
+    );
+  }
+  if (request.text.length === 0) {
+    throw new MuxError("invalid_response", "Prompt text must not be empty.");
+  }
+
+  const requestLine = `${JSON.stringify({
+    id: request.promptId,
+    method: "agent.prompt",
+    params: { target: request.target.paneId, text: request.text },
+  })}\n`;
+  const requestBytes = new TextEncoder().encode(requestLine).byteLength;
+  if (requestBytes > HERDR_SOCKET_MAX_LINE_BYTES) {
+    throw new MuxError(
+      "invalid_response",
+      "Prompt request exceeds the private Herdr transport limit.",
+      { maxRequestBytes: HERDR_SOCKET_MAX_LINE_BYTES },
+    );
+  }
+  return requestLine;
+}
+
+function promptEnvelope(
+  payload: unknown,
+  promptId: string,
+): PromptEnvelope {
+  const command = "herdr agent.prompt";
+  const envelope = requiredRecord(payload, "$", command);
+  const responseId = requiredString(envelope.id, "$.id", command);
+  if (responseId !== promptId) {
+    throw invalidResponse(command, "response ID did not match the request ID.");
+  }
+
+  const hasResult = Object.hasOwn(envelope, "result");
+  const hasError = Object.hasOwn(envelope, "error");
+  if (hasResult === hasError) {
+    throw invalidResponse(
+      command,
+      "response must contain exactly one of result or error.",
+    );
+  }
+  if (hasError) {
+    const error = requiredRecord(envelope.error, "$.error", command);
+    const code = requiredString(error.code, "$.error.code", command);
+    requiredString(error.message, "$.error.message", command);
+    if (!HERDR_PROMPT_ERROR_CODE_PATTERN.test(code)) {
+      throw invalidResponse(command, "$.error.code must be a bounded token.");
+    }
+    return { kind: "error", code };
+  }
+  return {
+    kind: "success",
+    result: requiredRecord(envelope.result, "$.result", command),
+  };
+}
+
+function promptDomainError(code: string): MuxError {
+  const details = { command: "herdr agent.prompt", herdrCode: code };
+  if (!HERDR_PROMPT_ZERO_WRITE_ERROR_CODES.has(code)) {
+    return new MuxError(
+      "outcome_unknown",
+      "Herdr returned a private prompt error that does not prove zero terminal mutation. Do not retry automatically.",
+      { ...details, stage: "domain_response" },
+    );
+  }
+  if (code === "agent_not_ready") {
+    return new MuxError(
+      "conflict",
+      "Herdr rejected the private prompt because the reported agent is no longer ready in the target pane.",
+      details,
+    );
+  }
+  if (code === "agent_prompt_failed") {
+    return new MuxError(
+      "unavailable",
+      "Herdr rejected the private prompt before it could enqueue terminal input.",
+      details,
+    );
+  }
+  return new MuxError(
+    "invalid_response",
+    "Herdr rejected an empty private prompt before terminal mutation.",
+    details,
+  );
+}
+
+function promptAgentStatus(
+  result: JsonRecord,
+  target: MuxTargetV2,
+): string {
+  const command = "herdr agent.prompt";
+  if (result.type !== "agent_prompted") {
+    throw invalidResponse(command, "$.result.type must be agent_prompted.");
+  }
+  const agent = requiredRecord(result.agent, "$.result.agent", command);
+  const identities: ReadonlyArray<readonly [string, string, string]> = [
+    [
+      "workspace_id",
+      requiredString(agent.workspace_id, "$.result.agent.workspace_id", command),
+      target.workspaceId,
+    ],
+    [
+      "tab_id",
+      requiredString(agent.tab_id, "$.result.agent.tab_id", command),
+      target.tabId,
+    ],
+    [
+      "pane_id",
+      requiredString(agent.pane_id, "$.result.agent.pane_id", command),
+      target.paneId,
+    ],
+    [
+      "terminal_id",
+      requiredString(agent.terminal_id, "$.result.agent.terminal_id", command),
+      target.terminalId,
+    ],
+  ];
+  for (const [field, actual, expected] of identities) {
+    if (actual !== expected) {
+      throw invalidResponse(
+        command,
+        `$.result.agent.${field} did not match the receipted target.`,
+      );
+    }
+  }
+
+  const agentStatus = requiredString(
+    agent.agent_status,
+    "$.result.agent.agent_status",
+    command,
+  );
+  if (!HERDR_AGENT_STATUSES.has(agentStatus)) {
+    throw invalidResponse(
+      command,
+      "$.result.agent.agent_status is not a protocol-18 status.",
+    );
+  }
+  requiredBoolean(agent.focused, "$.result.agent.focused", command);
+  const revision = requiredInteger(
+    agent.revision,
+    "$.result.agent.revision",
+    command,
+  );
+  if (revision < 0) {
+    throw invalidResponse(
+      command,
+      "$.result.agent.revision must be an unsigned integer.",
+    );
+  }
+  if (Object.hasOwn(agent, "state_change_seq")) {
+    const stateChangeSequence = requiredInteger(
+      agent.state_change_seq,
+      "$.result.agent.state_change_seq",
+      command,
+    );
+    if (stateChangeSequence < 0) {
+      throw invalidResponse(
+        command,
+        "$.result.agent.state_change_seq must be an unsigned integer.",
+      );
+    }
+  }
+  for (const field of [
+    "interactive_ready",
+    "launch_pending",
+    "screen_detection_skipped",
+  ]) {
+    if (Object.hasOwn(agent, field)) {
+      requiredBoolean(agent[field], `$.result.agent.${field}`, command);
+    }
+  }
+  return agentStatus;
+}
+
+export class HerdrMuxAdapter implements MuxPort, MuxPromptPort {
   readonly #executable: string | null;
   readonly #runner: HerdrProcessRunner;
+  readonly #socketRequester: HerdrSocketRequester;
   readonly #session: string;
 
   constructor(options: HerdrMuxOptions = {}) {
@@ -459,6 +788,7 @@ export class HerdrMuxAdapter implements MuxPort {
     }
     this.#executable = executable;
     this.#runner = options.runner ?? defaultRunner;
+    this.#socketRequester = options.socketRequester ?? defaultSocketRequester;
     this.#session = options.session ?? DEFAULT_HERDR_SESSION;
     validateSession(this.#session);
   }
@@ -773,6 +1103,99 @@ export class HerdrMuxAdapter implements MuxPort {
       };
     }
     return { state: "running", target, focused };
+  }
+
+  async prompt(request: MuxPromptRequest): Promise<MuxPromptResult> {
+    if (request.target.version !== MUX_TARGET_VERSION) {
+      throw new MuxError(
+        "incompatible",
+        "Private prompting requires a V2 mux target bound to an exact Herdr server namespace.",
+        { targetVersion: request.target.version },
+      );
+    }
+    validateTarget(request.target);
+    const requestLine = promptRequestLine(request);
+
+    // This exact-generation check is intentionally repeated immediately before
+    // the socket mutation. Protocol 18 cannot condition agent.prompt itself on
+    // terminal_id, so a post-preflight rollover remains an alpha TOCTOU risk.
+    const before = await this.status(request.target);
+    if (before.state === "absent") {
+      throw new MuxError(
+        "conflict",
+        "Herdr prompt target is absent.",
+        { promptId: request.promptId },
+      );
+    }
+    if (before.agentStatus !== "idle") {
+      throw new MuxError(
+        "conflict",
+        "Herdr prompt target is no longer idle.",
+        {
+          promptId: request.promptId,
+          agentStatus: before.agentStatus ?? null,
+        },
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await this.#socketRequester({
+        pipePath: nativeWindowsPipePath(request.target.server.socket),
+        requestLine,
+      });
+    } catch (error) {
+      if (
+        error instanceof HerdrSocketRequestError &&
+        !error.mayHaveWritten
+      ) {
+        throw new MuxError(
+          "unavailable",
+          "Could not connect to the Herdr private prompt transport.",
+          { promptId: request.promptId, stage: error.stage },
+        );
+      }
+      throw new MuxError(
+        "outcome_unknown",
+        "Herdr prompt submission may have succeeded, but no trustworthy response was observed. Do not retry automatically.",
+        {
+          promptId: request.promptId,
+          stage: error instanceof HerdrSocketRequestError
+            ? error.stage
+            : "requester",
+        },
+      );
+    }
+
+    let envelope: PromptEnvelope;
+    try {
+      envelope = promptEnvelope(payload, request.promptId);
+    } catch {
+      throw new MuxError(
+        "outcome_unknown",
+        "Herdr prompt submission returned an invalid response after the request was written. Do not retry automatically.",
+        { promptId: request.promptId, stage: "response" },
+      );
+    }
+    if (envelope.kind === "error") {
+      throw promptDomainError(envelope.code);
+    }
+
+    let agentStatus: string;
+    try {
+      agentStatus = promptAgentStatus(envelope.result, request.target);
+    } catch {
+      throw new MuxError(
+        "outcome_unknown",
+        "Herdr acknowledged the prompt without a matching full-generation agent receipt. Do not retry automatically.",
+        { promptId: request.promptId, stage: "agent_receipt" },
+      );
+    }
+    return {
+      promptId: request.promptId,
+      target: request.target,
+      agentStatus,
+    };
   }
 
   async reconnect(target: MuxTarget): Promise<MuxStatus> {
@@ -1254,6 +1677,8 @@ export class HerdrMuxAdapter implements MuxPort {
   }
 }
 
-export function createHerdrMux(options: HerdrMuxOptions = {}): MuxPort {
+export function createHerdrMux(
+  options: HerdrMuxOptions = {},
+): MuxPort & MuxPromptPort {
   return new HerdrMuxAdapter(options);
 }

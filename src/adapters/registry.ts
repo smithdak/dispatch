@@ -5,7 +5,7 @@ import {
 } from "./hooks/claude";
 import type { AgentHookTranslationResult } from "../ports/agent";
 import type { Environment } from "../core/paths";
-import type { MuxPort } from "../ports/mux";
+import type { MuxPort, MuxPromptPort } from "../ports/mux";
 
 export type HookProvider = "claude";
 
@@ -40,7 +40,7 @@ export async function loadMuxPort(
   env: Environment = process.env,
   platform: NodeJS.Platform = process.platform,
   architecture: string = process.arch,
-): Promise<MuxPort> {
+): Promise<MuxPort & MuxPromptPort> {
   if (platform !== "win32" || architecture !== "x64") {
     const { MuxError } = await import("../ports/mux");
     throw new MuxError(

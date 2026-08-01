@@ -2,6 +2,7 @@ import { isAbsolute, win32 } from "node:path";
 
 import { loadConfig, type DispatchConfig } from "../core/config";
 import { DispatchError, errorMessage } from "../core/errors";
+import { createSortableId, isSortableId } from "../core/identity";
 import { SessionIndex } from "../core/index";
 import {
   withExclusiveFileLock,
@@ -24,6 +25,8 @@ import {
   type MuxDiscovery,
   type MuxEnsureResult,
   type MuxPort,
+  type MuxPromptPort,
+  type MuxPromptResult,
   type MuxStatus,
   type MuxTarget,
   type MuxTargetV1,
@@ -38,6 +41,11 @@ import {
   sessionEventsPath,
   type SessionMeta,
 } from "./session-meta";
+import {
+  assertNoUnresolvedPrompt,
+  unresolvedPromptReceipt,
+  type PromptReceiptState,
+} from "./prompt-receipts";
 
 export interface TerminalSessionOptions {
   readonly paths?: DispatchPaths;
@@ -85,6 +93,29 @@ export interface CloseTerminalSessionResult {
     | "recorded"
     | "already_recorded"
     | "recovered_after_append";
+  readonly projectionWarnings: readonly string[];
+}
+
+export const PRIVATE_PROMPT_MAX_UTF8_BYTES = 128 * 1024;
+
+export interface PromptTerminalSessionOptions extends TerminalSessionOptions {
+  readonly acknowledgeUnknownPromptId?: string;
+}
+
+export interface PromptTerminalSessionResult {
+  readonly sid: string;
+  readonly promptId: string;
+  readonly target: MuxTargetV2;
+  readonly agentStatus: string;
+  readonly receipt: "accepted";
+  readonly projectionWarnings: readonly string[];
+}
+
+export interface AcknowledgeUnknownPromptResult {
+  readonly sid: string;
+  readonly promptId: string;
+  readonly previousState: "prompt.intent" | "prompt.outcome_unknown";
+  readonly receipt: "acknowledged";
   readonly projectionWarnings: readonly string[];
 }
 
@@ -800,6 +831,154 @@ async function appendClosedReceipt(
   }
 }
 
+function validatePrivatePromptText(text: string): void {
+  if (text.trim().length === 0) {
+    throw new DispatchError(
+      "session.prompt_invalid",
+      "Private prompt input must contain non-whitespace text.",
+    );
+  }
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(text)) {
+    throw new DispatchError(
+      "session.prompt_invalid",
+      "Private prompt input must be one line and contain no terminal control characters.",
+    );
+  }
+  const encodedBytes = new TextEncoder().encode(text).byteLength;
+  if (encodedBytes > PRIVATE_PROMPT_MAX_UTF8_BYTES) {
+    throw new DispatchError(
+      "session.prompt_invalid",
+      `Private prompt input exceeds the ${PRIVATE_PROMPT_MAX_UTF8_BYTES}-byte limit.`,
+      { maxBytes: PRIVATE_PROMPT_MAX_UTF8_BYTES },
+    );
+  }
+}
+
+function hasPromptReceiptAfter(
+  history: readonly ReadableEvent[],
+  afterSeq: number,
+  promptId: string,
+  state: PromptReceiptState,
+): number | undefined {
+  return history.find(
+    (event) =>
+      event.seq > afterSeq &&
+      event.src === "dsp" &&
+      event.kind === "agent.state" &&
+      event.data.operation === "prompt" &&
+      event.data.promptId === promptId &&
+      event.data.state === state,
+  )?.seq;
+}
+
+async function appendPromptReceipt(
+  paths: DispatchPaths,
+  config: DispatchConfig,
+  meta: SessionMeta,
+  target: MuxTargetV2,
+  promptId: string,
+  state: PromptReceiptState,
+  afterSeq: number,
+  warnings: string[],
+  data: JsonObject = {},
+): Promise<number> {
+  const index = openProjection(paths, meta, warnings);
+  try {
+    try {
+      const appended = await appendSessionEvent(
+        paths,
+        config,
+        meta,
+        {
+          src: "dsp",
+          kind: "agent.state",
+          data: {
+            ...data,
+            operation: "prompt",
+            state,
+            promptId,
+            transport: "herdr_named_pipe",
+            muxTarget: targetData(target),
+          },
+        },
+        index,
+      );
+      if (appended.projectionError) {
+        warnings.push(
+          `index projection failed: ${errorMessage(appended.projectionError)}`,
+        );
+      }
+      return appended.event.seq;
+    } catch (error) {
+      const recoveredHistory = await readSessionHistory(paths, meta.sid);
+      const recoveredSeq = hasPromptReceiptAfter(
+        recoveredHistory,
+        afterSeq,
+        promptId,
+        state,
+      );
+      if (recoveredSeq !== undefined) {
+        try {
+          index?.restoreSession(meta, recoveredHistory);
+        } catch (projectionError) {
+          warnings.push(
+            `index projection failed: ${errorMessage(projectionError)}`,
+          );
+        }
+        return recoveredSeq;
+      }
+      throw new DispatchError(
+        "session.prompt_receipt_failed",
+        `Prompt ${promptId} reached state ${state}, but its durable receipt was not committed. Do not submit another prompt until this outcome is acknowledged.`,
+        { sid: meta.sid, promptId, state },
+        { cause: error },
+      );
+    }
+  } finally {
+    closeProjection(index, warnings);
+  }
+}
+
+function receiptedPromptTarget(
+  sid: string,
+  history: readonly ReadableEvent[],
+): MuxTargetV2 {
+  const target = latestMuxTarget(history);
+  if (!target) {
+    throw new DispatchError(
+      "session.prompt_target_missing",
+      `Session ${sid} has no receipted terminal target; run dsp open first.`,
+      { sid },
+    );
+  }
+  if (target.version !== MUX_TARGET_VERSION) {
+    throw new DispatchError(
+      "session.prompt_target_legacy",
+      `Session ${sid} must be rebound to a V2 Herdr target with dsp open before private prompting.`,
+      { sid, targetVersion: target.version },
+    );
+  }
+  return target;
+}
+
+function promptTarget(
+  sid: string,
+  meta: SessionMeta,
+  history: readonly ReadableEvent[],
+): MuxTargetV2 {
+  const lifecycle = dispatchLifecycle(history);
+  if (lifecycle !== "opened") {
+    throw new DispatchError(
+      "session.prompt_forbidden",
+      `Cannot submit a prompt to ${lifecycle} session ${sid}.`,
+      { sid, dispatchLifecycle: lifecycle },
+    );
+  }
+  const target = receiptedPromptTarget(sid, history);
+  assertTargetCwd(sid, target, physicalPath(meta.worktreePath));
+  return target;
+}
+
 export async function openTerminalSession(
   sid: string,
   mux: MuxPort,
@@ -814,6 +993,7 @@ export async function openTerminalSession(
     `${sessionEventsPath(app.paths, sid)}.lifecycle`,
     async () => {
       const history = await readSessionHistory(app.paths, sid);
+      assertNoUnresolvedPrompt(history, "opening or focusing the terminal");
       const lifecycle = dispatchLifecycle(history);
       if (lifecycle === "closed" || lifecycle === "removed") {
         throw new DispatchError(
@@ -985,6 +1165,7 @@ export async function closeTerminalSession(
     `${sessionEventsPath(app.paths, sid)}.lifecycle`,
     async () => {
       const history = await readSessionHistory(app.paths, sid);
+      assertNoUnresolvedPrompt(history, "closing the terminal");
       const persistedTarget = latestMuxTarget(history);
       const completedClose = terminalCloseForCurrentTarget(
         history,
@@ -1191,6 +1372,294 @@ export async function closeTerminalSession(
         muxOutcome,
         alreadyClosed,
         receipt,
+        projectionWarnings: warnings,
+      };
+    },
+    { timeoutMs: config.ledger.lockTimeoutMs },
+  );
+}
+
+export async function acknowledgeUnknownPrompt(
+  sid: string,
+  promptId: string,
+  options: TerminalSessionOptions = {},
+): Promise<AcknowledgeUnknownPromptResult> {
+  if (!isSortableId(promptId)) {
+    throw new DispatchError(
+      "session.prompt_acknowledgement_invalid",
+      "Prompt acknowledgement requires a valid prompt ID.",
+      { sid },
+    );
+  }
+  const app = context(options);
+  ensureStateDirectories(app.paths);
+  const meta = readSessionMeta(app.paths, sid);
+  const config = loadConfig(app.paths, meta.repositoryPath, app.env);
+  const eventsPath = sessionEventsPath(app.paths, sid);
+
+  return withExclusiveFileLock(
+    `${eventsPath}.prompt`,
+    () =>
+      withExclusiveFileLock(
+        `${eventsPath}.lifecycle`,
+        async () => {
+          const history = await readSessionHistory(app.paths, sid);
+          const target = receiptedPromptTarget(sid, history);
+          const unresolved = unresolvedPromptReceipt(history);
+          if (!unresolved) {
+            throw new DispatchError(
+              "session.prompt_acknowledgement_unnecessary",
+              `Session ${sid} has no unresolved prompt outcome.`,
+              { sid, promptId },
+            );
+          }
+          if (unresolved.promptId !== promptId) {
+            throw new DispatchError(
+              "session.prompt_acknowledgement_mismatch",
+              `Prompt ${promptId} does not match unresolved prompt ${unresolved.promptId}.`,
+              {
+                sid,
+                promptId,
+                unresolvedPromptId: unresolved.promptId,
+              },
+            );
+          }
+
+          const warnings: string[] = [];
+          await appendPromptReceipt(
+            app.paths,
+            config,
+            meta,
+            target,
+            promptId,
+            "prompt.unknown_acknowledged",
+            history.at(-1)?.seq ?? 0,
+            warnings,
+            {
+              previousState: unresolved.state,
+              acknowledgement: "operator",
+            },
+          );
+          return {
+            sid,
+            promptId,
+            previousState: unresolved.state,
+            receipt: "acknowledged" as const,
+            projectionWarnings: warnings,
+          };
+        },
+        { timeoutMs: config.ledger.lockTimeoutMs },
+      ),
+    { timeoutMs: config.ledger.lockTimeoutMs },
+  );
+}
+
+export async function promptTerminalSession(
+  sid: string,
+  text: string,
+  mux: MuxPort & MuxPromptPort,
+  options: PromptTerminalSessionOptions = {},
+): Promise<PromptTerminalSessionResult> {
+  validatePrivatePromptText(text);
+  const promptId = createSortableId();
+  const app = context(options);
+  ensureStateDirectories(app.paths);
+  const meta = readSessionMeta(app.paths, sid);
+  const config = loadConfig(app.paths, meta.repositoryPath, app.env);
+  const eventsPath = sessionEventsPath(app.paths, sid);
+
+  return withExclusiveFileLock(
+    `${eventsPath}.prompt`,
+    async () => {
+      const warnings: string[] = [];
+      const target = await withExclusiveFileLock(
+        `${eventsPath}.lifecycle`,
+        async () => {
+          const history = await readSessionHistory(app.paths, sid);
+          const currentTarget = promptTarget(sid, meta, history);
+          const unresolved = unresolvedPromptReceipt(history);
+          let afterSeq = history.at(-1)?.seq ?? 0;
+          if (unresolved) {
+            if (options.acknowledgeUnknownPromptId !== unresolved.promptId) {
+              throw new DispatchError(
+                "session.prompt_outcome_unresolved",
+                `Prompt ${unresolved.promptId} is ${unresolved.state}; acknowledge it before submitting another prompt.`,
+                {
+                  sid,
+                  promptId: unresolved.promptId,
+                  state: unresolved.state,
+                  receiptSeq: unresolved.seq,
+                },
+              );
+            }
+            afterSeq = await appendPromptReceipt(
+              app.paths,
+              config,
+              meta,
+              currentTarget,
+              unresolved.promptId,
+              "prompt.unknown_acknowledged",
+              afterSeq,
+              warnings,
+              {
+                previousState: unresolved.state,
+                acknowledgement: "operator",
+              },
+            );
+          } else if (options.acknowledgeUnknownPromptId !== undefined) {
+            throw new DispatchError(
+              "session.prompt_acknowledgement_unnecessary",
+              `Session ${sid} has no unresolved prompt outcome.`,
+              { sid, promptId: options.acknowledgeUnknownPromptId },
+            );
+          }
+
+          const status = await mux.status(currentTarget);
+          assertStatusTarget(sid, currentTarget, status);
+          if (status.state !== "running" || status.agentStatus !== "idle") {
+            throw new DispatchError(
+              "session.prompt_not_ready",
+              `Session ${sid} must have an idle foreground Herdr agent before private prompting.`,
+              {
+                sid,
+                muxState: status.state,
+                agentStatus:
+                  status.state === "running"
+                    ? (status.agentStatus ?? null)
+                    : null,
+              },
+            );
+          }
+
+          await appendPromptReceipt(
+            app.paths,
+            config,
+            meta,
+            currentTarget,
+            promptId,
+            "prompt.intent",
+            afterSeq,
+            warnings,
+            { preflightAgentStatus: status.agentStatus },
+          );
+          return currentTarget;
+        },
+        { timeoutMs: config.ledger.lockTimeoutMs },
+      );
+
+      const recordOutcome = async (
+        state: "prompt.accepted" | "prompt.rejected" | "prompt.outcome_unknown",
+        data: JsonObject,
+      ): Promise<void> => {
+        try {
+          await withExclusiveFileLock(
+            `${eventsPath}.lifecycle`,
+            async () => {
+              const history = await readSessionHistory(app.paths, sid);
+              const unresolved = unresolvedPromptReceipt(history);
+              if (
+                !unresolved ||
+                unresolved.promptId !== promptId ||
+                unresolved.state !== "prompt.intent"
+              ) {
+                throw new DispatchError(
+                  "session.prompt_receipt_invalid",
+                  `Prompt ${promptId} no longer has its expected durable intent receipt.`,
+                  { sid, promptId },
+                );
+              }
+              const currentTarget = latestMuxTarget(history);
+              if (!currentTarget || !sameTarget(currentTarget, target)) {
+                throw new DispatchError(
+                  "session.prompt_target_changed",
+                  `Prompt ${promptId} target changed before its outcome receipt could be committed.`,
+                  { sid, promptId },
+                );
+              }
+              await appendPromptReceipt(
+                app.paths,
+                config,
+                meta,
+                target,
+                promptId,
+                state,
+                history.at(-1)?.seq ?? 0,
+                warnings,
+                data,
+              );
+            },
+            { timeoutMs: config.ledger.lockTimeoutMs },
+          );
+        } catch (error) {
+          const recoveredHistory = await readSessionHistory(app.paths, sid);
+          if (
+            hasPromptReceiptAfter(
+              recoveredHistory,
+              0,
+              promptId,
+              state,
+            ) !== undefined
+          ) {
+            return;
+          }
+          if (
+            error instanceof DispatchError &&
+            error.code === "session.prompt_receipt_failed"
+          ) {
+            throw error;
+          }
+          throw new DispatchError(
+            "session.prompt_receipt_failed",
+            `Prompt ${promptId} reached state ${state}, but its durable receipt was not committed. Do not submit another prompt until this outcome is acknowledged.`,
+            { sid, promptId, state },
+            { cause: error },
+          );
+        }
+      };
+
+      let result: MuxPromptResult;
+      try {
+        result = await mux.prompt({ promptId, target, text });
+      } catch (error) {
+        const knownRejection =
+          error instanceof MuxError && error.code !== "outcome_unknown";
+        await recordOutcome(
+          knownRejection ? "prompt.rejected" : "prompt.outcome_unknown",
+          {
+            errorCode: error instanceof MuxError
+              ? error.code
+              : "unexpected_transport_error",
+          },
+        );
+        if (knownRejection) throw error;
+        throw new MuxError(
+          "outcome_unknown",
+          `Prompt ${promptId} may have been delivered. Do not retry without acknowledging this prompt ID.`,
+          { sid, promptId },
+          { cause: error },
+        );
+      }
+
+      if (result.promptId !== promptId || !sameTarget(result.target, target)) {
+        await recordOutcome("prompt.outcome_unknown", {
+          errorCode: "receipt_mismatch",
+        });
+        throw new MuxError(
+          "outcome_unknown",
+          `Prompt ${promptId} returned a mismatched acknowledgement. Do not retry without acknowledging this prompt ID.`,
+          { sid, promptId },
+        );
+      }
+
+      await recordOutcome("prompt.accepted", {
+        agentStatus: result.agentStatus,
+      });
+      return {
+        sid,
+        promptId,
+        target,
+        agentStatus: result.agentStatus,
+        receipt: "accepted",
         projectionWarnings: warnings,
       };
     },
