@@ -27,17 +27,18 @@ a Linux arm64 binary, but `doctor` rejects that host until it is qualified.
 | [`v0.1.0`](https://github.com/smithdak/dispatch/releases/tag/v0.1.0) | Exact Windows artifact completed the Stage 0 lifecycle and was invoked by a real native Claude Code process. | Original process-level latency targets; broad provider support. |
 | [`v0.2.0-alpha.1`](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.1) | Exact Windows artifact passed the native Herdr full-lifecycle profile. | Restart recovery, prompting, concurrency stress, daily-driver use. |
 | [`v0.2.0-alpha.2`](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.2) | Exact Windows artifact passed five isolated stop/start recovery cycles. | Native conversation restore, prompting, atomic mutation fencing, daily-driver use. |
-| [`v0.2.0-alpha.3`](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.3) | Exact Windows artifact passed the isolated synthetic transport profile: one stdin-only prompt reached a disposable native line-reader with body-free receipts and complete cleanup. | A real provider or model, named-pipe ACL behavior, real-provider prompt consumption or turn completion, multiline input, sustained use. |
+| [`v0.2.0-alpha.3`](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.3) | Exact Windows artifact passed the isolated synthetic transport profile. A later recovered local receipt using an installed binary with the same SHA-256 records one isolated live-Claude prompt and completed turn with zero tools and safe cleanup. | Ordinary acceptance as a general delivery/completion guarantee, directly retained pane output, named-pipe ACL behavior or same-user confidentiality, multiline or working-agent prompting, concurrency/ID-reuse stress, other providers, sustained use. |
 
 The alpha.3 helper was deliberately named `codex.exe` so Herdr recognized an agent-kind
-foreground process. It was not OpenAI Codex, and no provider or model was invoked.
+foreground process. It was not OpenAI Codex; that original synthetic profile did not
+invoke a provider or model.
 
 ## Stage boundaries
 
 | Stage | State |
 | --- | --- |
 | Stage 0 — durable sessions | Implemented and functionally qualified on the supported x64 targets. The original process-latency targets remain missed. |
-| Stage 1 — Windows orchestration | Herdr lifecycle, namespace binding, cold-restart recovery, and synthetic private-prompt transport are implemented. Layouts, real-provider prompt and named-pipe ACL proof, concurrency stress, native conversation restore, and the two-week daily-driver test remain open. |
+| Stage 1 — Windows orchestration | Herdr lifecycle, namespace binding, cold-restart recovery, and synthetic private-prompt transport are qualified; one isolated real-Claude prompt/turn is qualified once through recovered local evidence. Open work includes layouts, named-pipe ACL proof, multiline and working-agent prompting, concurrency stress, native conversation restore, and the two-week daily-driver test. |
 | Stage 2 — provisioning | Only the filesystem probe harness exists. No provisioning engine ships before the O3 divergence-safety spike. |
 | Stage 3 — outcomes and review | Merge outcomes and the history skill exist. Review handoff and richer cross-session queries do not. |
 | Stages 4–5 — batch and providers | Batch execution and additional hook providers are not implemented. |
@@ -65,19 +66,19 @@ a documented performance exception, not a performance pass.
 
 ### Stage 1 completion
 
-Still required: genuine provider prompt qualification, named-pipe ACL qualification,
-multiline prompting, layouts, concurrent focus/target rollover stress, closed-workspace
-ID reuse stress, native agent conversation restore, and sustained daily-driver
-displacement.
+Still required: named-pipe ACL qualification, multiline and working-agent prompting,
+layouts, concurrent focus/target rollover stress, closed-workspace ID reuse stress,
+native agent conversation restore, and sustained daily-driver displacement.
 
 CI exercises the Herdr adapter against structured fakes. Native runtime qualification and
 exact downloaded-artifact receipts are separate proof classes.
 
 ## Evidence
 
-The canonical methods, exact CI links, local measurements, live Claude receipt, Herdr
-lifecycle receipts, restart receipts, and alpha.3 private-transport receipt are indexed
-under [Qualification evidence](qualification/README.md). Raw JSON receipts should be read
+The canonical methods, exact CI links, local measurements, live Claude receipts, Herdr
+lifecycle receipts, restart receipts, alpha.3 private-transport receipt, and recovered
+single-turn real-Claude plus cleanup receipts are indexed under
+[Qualification evidence](qualification/README.md). Raw JSON receipts should be read
 through that index so their proof limits stay attached.
 
 The architecture's strongest alternative is a ledger-only companion beside workmux. It

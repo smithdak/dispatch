@@ -1,9 +1,9 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { loadConfig, type DispatchConfig } from "../core/config";
 import { DispatchError, errorMessage } from "../core/errors";
-import { createSortableId } from "../core/identity";
+import { assertSortableId, createSortableId } from "../core/identity";
 import {
   SessionIndex,
   type IndexedSession,
@@ -57,6 +57,8 @@ export interface ApplicationContextOptions {
 }
 
 export interface CreateSessionOptions extends ApplicationContextOptions {
+  readonly sessionId?: string;
+  readonly workId?: string;
   readonly name?: string;
   readonly repositoryPath?: string;
   readonly baseRef?: string;
@@ -182,14 +184,30 @@ async function assertWorktreePathAvailable(
 export async function createSession(
   options: CreateSessionOptions = {},
 ): Promise<SessionMutationResult<SessionMeta>> {
+  if (options.sessionId !== undefined) {
+    assertSortableId(options.sessionId, "sessionId");
+  }
+  if (options.workId !== undefined) {
+    assertSortableId(options.workId, "workId");
+  }
+
   const app = context(options);
   ensureStateDirectories(app.paths);
+
+  const sid = options.sessionId ?? createSortableId();
+  const sessionPath = sessionDirectory(app.paths, sid);
+  if (existsSync(sessionPath)) {
+    throw new DispatchError(
+      "session.id_exists",
+      `Session ID ${sid} is already reserved.`,
+      { sid },
+    );
+  }
 
   const repository = await discoverRepository(
     resolve(options.repositoryPath ?? process.cwd()),
   );
   const config = loadConfig(app.paths, repository.topLevel, app.env);
-  const sid = createSortableId();
   const name = sessionSlug(options.name ?? "session");
   const branch =
     options.branch ?? `${config.worktrees.branchPrefix}${name}-${sid}`;
@@ -223,8 +241,26 @@ export async function createSession(
   };
 
   const warnings: string[] = [];
-  const sessionPath = sessionDirectory(app.paths, sid);
-  mkdirSync(sessionPath, { recursive: true, mode: 0o700 });
+  try {
+    // This is the cross-process claim point for caller-supplied IDs. The
+    // earlier existence check gives a fast error; non-recursive mkdir closes
+    // the check/create race before any ledger or Git mutation.
+    mkdirSync(sessionPath, { recursive: false, mode: 0o700 });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "EEXIST"
+    ) {
+      throw new DispatchError(
+        "session.id_exists",
+        `Session ID ${sid} is already reserved.`,
+        { sid },
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 
   try {
     const origin = await appendSessionEvent(
@@ -241,6 +277,9 @@ export async function createSession(
           baseBranch: meta.baseBranch,
           baseCommit: meta.baseCommit,
           createdAt: meta.createdAt,
+          ...(options.workId === undefined
+            ? {}
+            : { workId: options.workId }),
           ...(meta.muxTarget === undefined
             ? {}
             : { muxTarget: meta.muxTarget }),
@@ -410,15 +449,41 @@ async function mergeSessionLocked(
 ): Promise<SessionMutationResult<MergedWorktree>> {
   const history = await readSessionHistory(app.paths, meta.sid);
   assertNoUnresolvedPrompt(history, "merging the session");
-  const outcomeRecorded = hasOutcome(history);
+  const outcomeEvents = history.filter(
+    (event) => event.kind === "outcome.recorded",
+  );
+  const outcome = outcomeEvents.length === 1 ? outcomeEvents[0] : undefined;
+  const outcomeRecorded = outcome !== undefined;
+  const mergeRecorded = history.some((event) => event.kind === "git.merged");
   const sessionClosed = history.some(
     (event) => event.kind === "session.closed",
   );
+  if (outcomeEvents.length > 1) {
+    throw new DispatchError(
+      "session.outcome_conflict",
+      `Session ${meta.sid} has multiple recorded outcomes and cannot be merged.`,
+      { sid: meta.sid, outcomeCount: outcomeEvents.length },
+    );
+  }
   if (outcomeRecorded && sessionClosed) {
     throw new DispatchError(
       "session.already_completed",
       `Session ${meta.sid} already has a recorded outcome.`,
       { sid: meta.sid },
+    );
+  }
+  if (
+    outcome &&
+    (outcome.data.disposition !== "merged" || !mergeRecorded)
+  ) {
+    throw new DispatchError(
+      "session.outcome_conflict",
+      `Session ${meta.sid} has a non-merge or uncorroborated outcome and cannot be merged.`,
+      {
+        sid: meta.sid,
+        disposition: outcome.data.disposition,
+        mergeRecorded,
+      },
     );
   }
   const merged = await mergeWorktree({
@@ -438,7 +503,7 @@ async function mergeSessionLocked(
   const warnings: string[] = [];
   const index = openOptionalProjection(app.paths, meta, warnings);
   try {
-    if (!history.some((event) => event.kind === "git.merged")) {
+    if (!mergeRecorded) {
       await record(
         app.paths,
         config,

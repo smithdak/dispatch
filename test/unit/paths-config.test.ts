@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -12,6 +14,7 @@ import { join, parse, sep } from "node:path";
 
 import { loadConfig } from "../../src/core/config";
 import {
+  ensureStateDirectories,
   ensureMachineId,
   pathKey,
   physicalPath,
@@ -47,6 +50,22 @@ describe("dispatch paths", () => {
     );
 
     expect(paths.stateDir).toBe(join(root, "state", "dispatch"));
+    expect(paths.sessionsDir).toBe(
+      join(root, "state", "dispatch", "sessions"),
+    );
+    expect(paths.workDir).toBe(
+      join(root, "state", "dispatch", "intelligence", "work"),
+    );
+    expect(paths.workEventsPath).toBe(
+      join(
+        root,
+        "state",
+        "dispatch",
+        "intelligence",
+        "work",
+        "events.jsonl",
+      ),
+    );
     expect(paths.globalConfigPath).toBe(
       join(root, "config", "dispatch", "config.toml"),
     );
@@ -54,6 +73,27 @@ describe("dispatch paths", () => {
     expect(paths.defaultWorktreeRoot).toBe(
       join(root, "data", "dispatch", "worktrees"),
     );
+  });
+
+  test("creates private session and work state directories", () => {
+    const root = temporaryDirectory();
+    const paths = resolveDispatchPaths(
+      { HOME: root, DISPATCH_HOME: join(root, "state") },
+      "linux",
+    );
+
+    ensureStateDirectories(paths);
+    // Re-entry must cover a chain that is already visible; this is the restart
+    // path after an interrupted first directory-publication fsync pass.
+    ensureStateDirectories(paths);
+
+    expect(existsSync(paths.sessionsDir)).toBeTrue();
+    expect(existsSync(paths.workDir)).toBeTrue();
+    expect(existsSync(paths.workEventsPath)).toBeFalse();
+    if (process.platform !== "win32") {
+      expect(statSync(paths.sessionsDir).mode & 0o777).toBe(0o700);
+      expect(statSync(paths.workDir).mode & 0o777).toBe(0o700);
+    }
   });
 
   test("persist and reuse a machine identity", () => {

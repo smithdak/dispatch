@@ -1,5 +1,6 @@
 import {
   closeSync,
+  existsSync,
   fsyncSync,
   linkSync,
   mkdirSync,
@@ -27,6 +28,8 @@ import { DispatchError } from "../errors";
 export interface DispatchPaths {
   readonly stateDir: string;
   readonly sessionsDir: string;
+  readonly workDir: string;
+  readonly workEventsPath: string;
   readonly indexPath: string;
   readonly machineIdPath: string;
   readonly configDir: string;
@@ -94,6 +97,8 @@ export function resolveDispatchPaths(
   return {
     stateDir,
     sessionsDir: join(stateDir, "sessions"),
+    workDir: join(stateDir, "intelligence", "work"),
+    workEventsPath: join(stateDir, "intelligence", "work", "events.jsonl"),
     indexPath: join(stateDir, "index.sqlite"),
     machineIdPath: join(stateDir, "machine-id"),
     configDir,
@@ -109,7 +114,26 @@ export function resolveDispatchPaths(
 }
 
 export function ensureStateDirectories(paths: DispatchPaths): void {
-  mkdirSync(paths.sessionsDir, { recursive: true, mode: 0o700 });
+  ensurePrivateDirectory(paths.sessionsDir);
+  ensurePrivateDirectory(paths.workDir);
+}
+
+function ensurePrivateDirectory(directory: string): void {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (process.platform === "win32") return;
+
+  // Re-stabilize the complete visible chain on every call, including when no
+  // directory is currently missing. A prior process can die after recursive
+  // mkdir publishes a chain in the kernel cache but before its leaf-to-root
+  // fsync pass completes. Treating that visible chain as durable on retry can
+  // otherwise allow a later acknowledged ledger write to disappear with it.
+  let cursor = resolve(directory);
+  for (;;) {
+    syncDirectory(cursor);
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
 }
 
 function machineIdCandidate(): string {

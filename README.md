@@ -5,7 +5,7 @@ Durable work sessions for coding agents.
 [![CI](https://github.com/smithdak/dispatch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/smithdak/dispatch/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/smithdak/dispatch?include_prereleases&sort=semver&label=release)](https://github.com/smithdak/dispatch/releases)
 
-Dispatch gives each task its own Git worktree and session ID. It records structured
+Dispatch gives each session attempt its own Git worktree and session ID. It records structured
 agent activity in an append-only ledger, keeps fast session views in a rebuildable
 index, and gives humans and agents one history to inspect before work is repeated.
 
@@ -22,9 +22,10 @@ optional retained-terminal lifecycle around an agent you start.
 
 ## For agents
 
-Check prior Dispatch work before starting or repeating a task:
+Check the roadmap and prior Dispatch work before starting or repeating a task:
 
 ```sh
+dsp work brief "task intent" --repo . --json
 dsp ls --limit 20 --json
 dsp log <sid> --json
 ```
@@ -42,12 +43,14 @@ Run from an existing Git repository with a local branch and at least one commit:
 # Optional, once: observe Claude Code activity in future Dispatch worktrees.
 dsp hooks install claude
 
-# Dispatch prints the new session ID and worktree path.
-dsp new "auth refactor" --json
+# Give durable work a stable repository-scoped identity, then reserve its attempt.
+dsp work create "Auth refactor" --key auth/refactor --repo . --json
+dsp new --work <wid> --json
 
 # Start the agent yourself inside the returned worktree, then commit its work.
 dsp log <sid> --json
 dsp merge <sid>
+dsp work status <wid> done
 dsp remove <sid>
 ```
 
@@ -93,8 +96,10 @@ Linux x64, checksums, PATH setup, and the full first-session walkthrough are in
 
 ## What Dispatch owns
 
-- **Isolation:** one linked Git worktree and branch per task.
+- **Isolation:** one linked Git worktree and branch per session attempt.
 - **Memory:** one durable session identity with an append-only event history.
+- **Work intelligence:** stable work identity, explicit roadmap state, atomic attempt
+  reservations, candidate insights, and deterministic evidence-backed briefings.
 - **Lifecycle:** explicit create, inspect, merge, close, and remove operations.
 - **Windows terminal control:** one receipted Herdr target, with explicit recovery after
   a witnessed server restart and stdin-only prompting to an idle foreground agent.

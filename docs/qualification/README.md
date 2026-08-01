@@ -225,3 +225,36 @@ The retained receipt's `releaseDownloadByteIdenticalToActionsArtifact` field mea
 the downloaded release executable matched the executable extracted from the Actions ZIP.
 It does not compare the executable bytes with the ZIP archive bytes. The repository copy
 is intentionally unchanged so its SHA-256 remains identical to the published receipt.
+
+## Stage 1 isolated Windows real Claude prompt
+
+[`stage1-windows-real-claude-48070cd0.json`](stage1-windows-real-claude-48070cd0.json)
+is the normalized sanitized derivative of the recovered local receipt for one nonce-
+isolated native Windows turn on 2026-08-01 using Claude Code `2.1.220`. The installed
+`dsp.exe` SHA-256 matches the Windows executable digest retained for `v0.2.0-alpha.3`.
+The recovered receipt records one prompt intent and acceptance, one post-baseline
+`UserPromptSubmit`, one later `Stop` for the same provider session, nonempty completed-
+turn output, zero tool calls, a clean unchanged worktree, and terminal closure. It also
+records that the qualifier observed its constructed marker before entering the post-
+proof close path; that marker observation is not independently re-evaluable from the
+retained artifacts.
+
+The qualifier did not emit its ordinary success receipt because Claude rewrote its
+project config during graceful shutdown after the first purge. Cleanup recovery later
+reconstructed the off-repository source receipt, and this derivative binds to it by
+SHA-256. It explicitly records that no direct final pane snapshot, raw ledger, prompt,
+response, provider transcript, debug log, or original qualifier source blob is retained.
+It is recovered local live-provider evidence, not an ordinary independently retained
+success receipt and not proof that the downloaded release-asset file itself was invoked.
+
+[`stage1-windows-real-claude-cleanup-48070cd0.json`](stage1-windows-real-claude-cleanup-48070cd0.json)
+records exact-project purge, non-forced worktree removal, nonce-owned Herdr-session
+deletion, and qualification-root removal without unknown-outcome acknowledgement or
+restored-terminal recovery.
+
+Together these receipts close only the single-turn real-Claude prompt-consumption and
+turn-completion gate for the tested release-identical installed bytes. They do not make
+`prompt.accepted` a general delivery or completion guarantee and do not qualify
+named-pipe ACLs or same-user confidentiality, multiline prompts, working-agent steering,
+concurrent target-generation or closed-ID reuse, native conversation restore, other
+providers, response quality, or sustained daily-driver use.

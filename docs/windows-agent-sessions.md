@@ -74,8 +74,12 @@ body, hash, or length.
 An accepted receipt means Herdr queued the text and scheduled Enter. It does not prove
 that the agent consumed the prompt, completed a turn, or produced the requested outcome.
 The exact release qualification used a disposable native line-reader, not a real provider
-or model. It did not independently verify the Windows named-pipe ACL, so it makes no
-confidentiality claim against other processes running as the same user.
+or model. A later recovered local qualification using release-identical installed Windows
+bytes correlated one accepted prompt with one same-session Claude `UserPromptSubmit`, one
+later `Stop`, and marker-observation control flow. That isolated run does not change the
+general meaning of `accepted`. Neither qualification independently verified the Windows
+named-pipe ACL, so they make no confidentiality claim against other processes running as
+the same user.
 
 ### Resolve an unknown outcome
 

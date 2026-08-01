@@ -233,6 +233,45 @@ export async function discoverRepository(
 }
 
 /**
+ * Resolve the primary worktree that owns the shared Git repository.
+ *
+ * `rev-parse --show-toplevel` identifies the current linked worktree, which
+ * would fragment repository-scoped work identity. Git's porcelain worktree
+ * list is path-safe with `-z`, and its first `worktree` field is the primary
+ * checkout for the shared repository.
+ */
+export async function discoverPrimaryRepository(cwd: string): Promise<string> {
+  const current = await repositoryTopLevelAt(cwd, "discover");
+  const output = await runGitOrThrow(
+    "discover",
+    "GIT_FAILED",
+    current,
+    current,
+    ["worktree", "list", "--porcelain", "-z"],
+    `Could not resolve the primary worktree for ${current}`,
+  );
+  const primaryField = output.stdout
+    .split("\0")
+    .find((field) => field.startsWith("worktree "));
+  if (!primaryField) {
+    throw new WorktreeError({
+      operation: "discover",
+      code: "GIT_FAILED",
+      path: current,
+      message: `Git returned no primary worktree for ${current}`,
+      argv: output.argv,
+      exitCode: output.exitCode,
+      stderr: output.stderr.trim(),
+    });
+  }
+  return normalizeInputPath(
+    primaryField.slice("worktree ".length),
+    "discover",
+    "primary worktree",
+  );
+}
+
+/**
  * Create a new local session branch and linked worktree from an existing
  * local base branch. The returned `baseBranch` is the merge destination that
  * callers persist with session metadata.

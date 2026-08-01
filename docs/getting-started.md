@@ -68,16 +68,20 @@ or rerun the installer after moving or replacing it.
 See [Claude Code integration](claude-code.md) for project scope, source-mode setup, and
 the data boundary.
 
-## 3. Create the session
+## 3. Identify the work and create its session
 
 From the repository that will receive the final change:
 
 ```sh
-dsp new "auth refactor" --json
+dsp work brief "auth refactor" --repo . --json
+dsp work create "Auth refactor" --key auth/refactor --objective "Describe the intended outcome" --repo . --json
+dsp new --work <wid> --json
 ```
 
-The result includes a sortable `sid` and an absolute `worktreePath`. Keep the SID for
-later commands, then change directory to the returned worktree.
+Reuse the existing `wid` when the briefing finds this work. Otherwise, `work create`
+returns a new sortable `wid`, and `new --work` atomically reserves its session attempt.
+The session result includes a sortable `sid` and an absolute `worktreePath`. Keep both
+IDs for later commands, then change directory to the returned worktree.
 
 ## 4. Run the agent
 
@@ -116,6 +120,7 @@ base branch:
 
 ```sh
 dsp merge <sid>
+dsp work status <wid> done
 dsp remove <sid>
 ```
 
@@ -126,8 +131,8 @@ observed, not that provider spend was zero. `remove` deletes the linked worktree
 refuses a dirty worktree unless `--force` is explicit; a forced dirty removal is recorded
 as a discard.
 
-You now have one merged change and a durable event history that remains queryable after
-the worktree is gone.
+You now have one merged change, an explicitly completed roadmap item, and durable work
+and session histories that remain queryable after the worktree is gone.
 
 Next: [learn the agent history contract](agent-workflows.md) or use the
 [CLI reference](cli-reference.md).

@@ -1,13 +1,23 @@
 # CLI reference
 
 The compiled command is `dsp`. Every primary human command accepts `--json`; use it for
-agents, scripts, and stable field-level inspection.
+agents, scripts, and stable field-level inspection. Thrown command errors in JSON mode
+write a stable
+`{"error":{"code":"...","message":"...","details":{...}}}` envelope to stderr;
+`details` is empty or omitted when there is no structured evidence.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `dsp new [name] [--repo <path>] [--base <local-branch>] [--branch <new-branch>] [--path <new-path>] [--json]` | Create a durable session intent, linked worktree, and session metadata. |
+| `dsp work create <title> --key <stable-key> [--repo <path>] [--objective <text>] [--external <ref>] [--priority <1..5>] [--json]` | Create or idempotently resolve a repository-scoped work identity. |
+| `dsp work ls [--repo <path>] [--status <status>] [--limit <n>] [--json]` | List current roadmap state reduced from the authoritative work ledger. |
+| `dsp work show <wid> [--json]` | Show one work item with its attempts, candidate insights, and session evidence. |
+| `dsp work status <wid> <status> [--json]` | Record an explicit roadmap status transition. |
+| `dsp work note <wid> --kind <decision|learning|risk|question> --stdin [--session <sid>] [--json]` | Append a candidate insight without promoting it into repository canon. |
+| `dsp work brief [query] [--repo <path>] [--limit <n>] [--json]` | Return roadmap queues and deterministic related-work search results. |
+| `dsp work repair [--json]` | Remove only an uncommitted, non-newline work-ledger tail; refuse committed corruption. |
+| `dsp new [name] [--work <wid>] [--repo <path>] [--base <local-branch>] [--branch <new-branch>] [--path <new-path>] [--json]` | Create a durable session intent and linked worktree, optionally through an atomic work-attempt reservation. |
 | `dsp ls [--limit <n>] [--status <status>] [--repo <path>] [--verify] [--json]` | List sessions from the projection; optionally verify each ledger tail. |
 | `dsp log <sid> [--kind <kind>] [--limit <n>] [--json]` | Read the authoritative event history for one session. |
 | `dsp merge <sid> [--json]` | Merge committed session work into its recorded base branch and record the outcome. |
@@ -25,6 +35,61 @@ agents, scripts, and stable field-level inspection.
 The provider-facing hook entry is `dsp hook claude`. It accepts Claude hook JSON on
 stdin and is installed by `dsp hooks install claude`; it is not a normal interactive
 command.
+
+## Work intelligence
+
+The work ledger at `<state>/intelligence/work/events.jsonl` is authoritative for work
+identity, explicit roadmap status, attempt reservations, and candidate insights. It is
+separate from per-session evidence because one work item may exist before a session and
+span several terminal attempts.
+
+`work create` requires a stable key unique within the canonical repository. Repeating the
+same complete normalized creation intent is idempotent. Reusing the key with a changed
+title, objective, external reference, or priority, or creating the same exact normalized
+intent under another key, is rejected. Search scores returned by `work brief` are advisory
+lexical overlap; they never establish identity or completion.
+
+Keys are 1–128 lowercase ASCII letters and digits separated by single dots, underscores,
+hyphens, or slashes. Input is NFKC-normalized, trimmed, lowercased, and whitespace becomes
+a hyphen before validation. The duplicate fingerprint combines the canonical repository
+identity with the NFKC/whitespace-normalized objective when present, otherwise the title;
+case and punctuation remain significant. External reference and priority are not part of
+the fingerprint, though they must remain identical for an idempotent same-key retry.
+After text normalization, titles are limited to 1–200 characters, objectives to 1–4,000
+when supplied, and external references to 1–500 when supplied.
+
+Priority is an integer from 1 (highest) through 5 (lowest), defaults to 3, and sorts lower
+numbers first in lists and roadmap queues. Query matches sort by lexical score, using
+priority as a tie-breaker. `work create` and `work brief` default the repository to the
+current Git checkout. `work ls` is global unless `--repo` is supplied.
+
+`work ls --limit` defaults to 100 and accepts at most 10,000. `work brief --limit`
+defaults to 10, accepts at most 100, and applies independently to each roadmap queue and
+the related-work match list.
+
+`new --work` reserves a preallocated session ID in the work ledger before Git or session
+creation. Another start for that work item is rejected while an earlier reservation or
+session is active. A failed pre-origin creation is cancelled explicitly. An uncertain
+reservation remains blocking rather than being retried as if it never happened.
+
+Plain `dsp new` remains available for compatibility, but emits an untracked-session
+warning. Its session is absent from work-roadmap queues, and duplicate-prevention and
+roadmap-continuity guarantees do not apply.
+
+Statuses are `planned`, `active`, `blocked`, `review`, `done`, and `superseded`.
+Completion is always an explicit status command; a merge is supporting session evidence,
+not authority to mark roadmap work done. `planned`, `done`, and `superseded` are rejected
+while an attempt remains unresolved; `superseded` is terminal. The `next` queue therefore
+contains only planned items without unresolved attempts.
+
+Candidate insights normalize stdin whitespace to one-line canonical text, then limit that
+normalized body to 4,000 characters. They may be associated with one attempt, but remain proposals.
+This release does not provide an automatic or model-controlled promotion into project
+documentation. Bodies are stored as local plaintext: do not place secrets or raw provider
+transcripts in them.
+
+All linked worktrees resolve to the primary Git worktree's roadmap namespace. Separate
+clones and a checkout moved to a new physical path are not unified in this release.
 
 ## Session lifecycle rules
 
@@ -54,6 +119,11 @@ O(session count). `reindex` is the explicit full projection repair.
 
 Projection repair does not repair or replace corrupt JSONL ledger data.
 
+`dsp work repair` applies only to the separate global work ledger. It holds the work lock,
+removes a final non-newline suffix that was never committed, fsyncs the result, and reports
+the bytes removed. It refuses malformed committed records, sequence gaps, schema errors,
+and invalid domain history.
+
 ### Merge
 
 `merge` requires:
@@ -74,6 +144,11 @@ is the supported recovery path after common post-effect failures.
 `remove` deletes the linked worktree and is idempotently retryable after common
 post-effect failures. Dirty worktrees are rejected unless `--force` is present. A forced
 dirty removal records `git.discarded`, even if an earlier merge outcome exists.
+
+For a linked work attempt, a clean removal without a merge or explicit outcome remains
+unresolved and blocks another attempt. This release deliberately has no guess-based
+abandon/retry command; merge completed work before removal, and surface accidental clean
+removals for manual reconciliation rather than creating duplicate execution.
 
 ### Terminal commands
 

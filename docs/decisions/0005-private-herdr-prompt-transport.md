@@ -1,8 +1,9 @@
 # ADR 0005 — Private Herdr prompting is receipt-first and non-retriable when uncertain
 
 - Status: accepted for the Stage 1 Windows alpha; clean local qualification passed at
-  `dbcbac2` and exact-release synthetic transport qualification passed at `421efef`;
-  real-provider and named-pipe ACL qualification pending
+  `dbcbac2`, exact-release synthetic transport qualification passed at `421efef`, and
+  real-provider prompt consumption and turn completion passed once through recovered
+  local evidence on 2026-08-01; named-pipe ACL qualification pending
 - Date: 2026-07-31
 - Scope: private prompt input, Herdr socket transport, concurrency, and outcome receipts
 - As-of basis: Herdr `0.7.5-preview.2026-07-29-44b3adb12552`, protocol `18`,
@@ -119,14 +120,33 @@ once delivery.
   preflight-to-write TOCTOU or undo a misdirected prompt.
 - Herdr schedules Enter for later and returns success without confirming physical
   delivery. The receipt is therefore named `accepted`, not `delivered` or `completed`.
+- A separate nonce-isolated real-Claude qualification correlated one acceptance with one
+  same-session `UserPromptSubmit`, one later `Stop`, and marker-observation control flow.
+  That single recovered run does not change the general semantics of `prompt.accepted`.
 - The Windows named-pipe ACL was not independently verified. No confidentiality claim is
   made against other processes running as the same user.
-- Multiline prompts, working-agent steering, separate wait/reconciliation, real-provider
-  qualification, concurrent generation-change stress, and sustained daily-driver proof
-  remain open.
+- Multiline prompts, working-agent steering, separate wait/reconciliation, concurrent
+  generation-change stress, and sustained daily-driver proof remain open.
 - If Herdr adds an stdin-safe conditional prompt endpoint with a server-incarnation
   fence, idempotency key, and delivery acknowledgement, Dispatch should prefer it and
   retire this protocol-specific residual.
+
+## Qualification update — 2026-08-01
+
+The sanitized recovered receipt
+[`stage1-windows-real-claude-48070cd0.json`](../qualification/stage1-windows-real-claude-48070cd0.json)
+records one isolated native Claude Code `2.1.220` prompt and completed turn using installed
+Dispatch bytes whose SHA-256 matches the retained `v0.2.0-alpha.3` Windows asset digest.
+The separate
+[`cleanup receipt`](../qualification/stage1-windows-real-claude-cleanup-48070cd0.json)
+records exact-project purge and non-forced removal of the worktree, nonce-owned Herdr
+session, and qualification root.
+
+This closes only the single-turn real-provider prompt-consumption and turn-completion
+gate for those tested release-identical installed bytes. The receipt is recovered local
+evidence: no direct final pane snapshot, raw ledger, provider transcript, or original
+qualifier source blob is retained. Named-pipe ACL behavior and every other residual above
+remain open.
 
 Primary sources: [socket API](https://herdr.dev/docs/socket-api/),
 [agent automation](https://herdr.dev/docs/agent-automation/),

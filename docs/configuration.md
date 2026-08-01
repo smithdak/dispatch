@@ -12,10 +12,13 @@ Without either override, Windows uses:
 %LOCALAPPDATA%\dispatch\
 ├── machine-id
 ├── index.sqlite                 derived and disposable
-└── sessions\
+├── sessions\
     └── <sid>\
         ├── meta.json            immutable, ledger-rebuildable facts projection
         └── events.jsonl         authoritative append-only ledger
+└── intelligence\
+    └── work\
+        └── events.jsonl         authoritative work graph and attempt reservations
 ```
 
 On Linux, state falls back to `~/.local/state/dispatch`. The default worktree root is
@@ -25,6 +28,15 @@ directory inside its `state` check; it does not enumerate every Dispatch path.
 
 The JSONL ledger is the source of truth. `index.sqlite` and session views can be rebuilt
 with `dsp reindex`; ledger corruption cannot be repaired from the projection.
+
+The work ledger is a separate authoritative stream because one work item can span several
+sessions. It is replayed directly in the first intelligence slice and is not rebuilt or
+repaired by `dsp reindex`. `dsp work repair` can discard only an uncommitted torn tail;
+all committed corruption remains fail-closed.
+
+Work titles, objectives, external references, and candidate insight bodies are stored as
+local plaintext. The first slice has no secret redaction or retention policy, so these
+fields must not contain credentials or raw provider transcripts.
 
 ## Configuration files
 

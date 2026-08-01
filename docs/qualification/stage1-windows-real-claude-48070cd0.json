@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "sanitization": {
+    "schemaVersion": 1,
+    "transformation": "normalized-sanitized-derivative",
+    "sourceReceiptSha256": "b59b716c1f31f922cf594e05edab5900cec3a39c3b33f2017306100e7ee1e206",
+    "notableSensitiveFieldsRemoved": [
+      "dispatch.path",
+      "herdr.path",
+      "herdr.isolatedNamedSession",
+      "claude.path",
+      "claude.providerSessionId",
+      "dispatchSession.sid",
+      "dispatchSession.branch",
+      "dispatchSession.promptId",
+      "cleanup.cleanupReceipt",
+      "observations.inputChars",
+      "observations.outputChars",
+      "observations.promptSha256",
+      "observations.expectedMarkerSha256"
+    ],
+    "derivedFields": [
+      "candidate.matchesRetainedWindowsReleaseAssetDigest",
+      "candidate.releaseEvidence",
+      "observations.sameProviderSessionForStartAndCompletion",
+      "observations.nonemptyCompletedTurnOutputObserved"
+    ]
+  },
+  "generatedAt": "2026-08-01T21:52:02.3152443+00:00",
+  "verdict": "pass",
+  "evidenceClass": "recovered-local-live-provider",
+  "profile": "real_claude_interactive_private_prompt_recovered_after_post_proof_cleanup_race",
+  "scope": "native-windows-isolated-herdr-single-provider-turn",
+  "completeRealProviderPromptConsumptionAndTurnCompletionGate": true,
+  "runId": "48070cd05abad3e4eb64e874774b0baf",
+  "candidate": {
+    "dispatchVersion": "0.2.0-alpha.3",
+    "executableName": "dsp.exe",
+    "sha256": "482c33b1476ff55269e099106653cf0c7d624be17c04d3a5b400996c527f4a42",
+    "matchesRetainedWindowsReleaseAssetDigest": true,
+    "releaseEvidence": "stage1-release-runtime-evidence-421efef6.json"
+  },
+  "provider": {
+    "name": "Claude Code",
+    "version": "2.1.220",
+    "executableName": "claude.exe",
+    "sha256": "af5bf1f1b2aadffc768eccd787084c6fdf9ba81624cbe96c1c6d9ac1a1550231",
+    "requestedModelAlias": "haiku",
+    "observedModel": "claude-haiku-4-5-20251001",
+    "requestedThinking": "disabled",
+    "permissionMode": "dontAsk",
+    "dangerouslySkipPermissions": false,
+    "zeroTools": true
+  },
+  "transport": {
+    "name": "Herdr",
+    "version": "0.7.5-preview.2026-07-29-44b3adb12552",
+    "protocol": 18,
+    "executableName": "herdr.exe",
+    "sha256": "d0179e4673f944d9ac12174da0a533ea34a7cc5ee555dba208ffc4131fc38f4d",
+    "isolatedNonceNamedSession": true,
+    "paneHistoryDisabled": true
+  },
+  "recovery": {
+    "reason": "The off-repository source recovery receipt records that provider proof passed before a post-proof cleanup race. It records that Claude rewrote its exact project config entry during graceful shutdown after the first purge, so cleanup recovery reconstructed the success receipt from then-preserved state, ledger, qualifier control-flow results, and operator console before supported cleanup completed.",
+    "originalQualifierSha256": "1f67c02ce138744e75fc396e746a5339157e9ffac551c69cf17331954b2075c1",
+    "originalQualifierSourceRetained": false,
+    "operatorConsoleReportedProofPassed": true,
+    "qualifierReachedPostProofTerminalClose": true,
+    "directFinalPaneSnapshotRetained": false
+  },
+  "observations": {
+    "providerSessionStartSeq": 4,
+    "baselineSeq": 4,
+    "promptIntentSeq": 5,
+    "promptAcceptedSeq": 6,
+    "turnStartedSeq": 7,
+    "turnCompletedSeq": 8,
+    "sessionClosedSeq": 9,
+    "exactlyOneIntentAcceptanceStartAndCompletion": true,
+    "sameProviderSessionForStartAndCompletion": true,
+    "constructedMarkerObservedByQualifierBeforeTerminalClose": true,
+    "nonemptyCompletedTurnOutputObserved": true,
+    "noToolCallObserved": true,
+    "worktreeCleanAndHeadUnchangedBeforeClose": true,
+    "terminalCloseRecorded": true
+  },
+  "cleanup": {
+    "receipt": "stage1-windows-real-claude-cleanup-48070cd0.json",
+    "terminalClosed": true,
+    "exactClaudeProjectStatePurged": true,
+    "worktreeRemovedWithoutForce": true,
+    "ownedHerdrSessionStoppedAndDeleted": true,
+    "temporaryRootRemoved": true,
+    "debugLogRemovedWithTemporaryRoot": true
+  },
+  "artifactCommitments": {
+    "rawLedgerSha256": "e40ff15a0a4f9b34b3b3e8a0c11b121f06fb53c022982c238265823d9e3f0011",
+    "rawLedgerRetained": false,
+    "deletedDebugLogSha256": "c9ecbb851dbbdccb715cbaba142107efe5e4c445e415456bd22611994ac67847",
+    "debugLogContentsRetained": false,
+    "promptRetained": false,
+    "responseRetained": false,
+    "providerTranscriptRetained": false
+  },
+  "methodLimits": [
+    "This is recovered local live-provider evidence, not the qualifier's ordinary independently retained success receipt.",
+    "No direct final pane snapshot, prompt, response, provider transcript, raw ledger, debug log, or original qualifier source blob is retained. The source recovery receipt reports marker observation, and the operator console reached the Proof passed phase before terminal close; that observation cannot be independently re-evaluated from the retained artifacts.",
+    "The installed Dispatch binary digest matches the retained v0.2.0-alpha.3 Windows release-asset digest; this does not prove that the downloaded release-asset file itself was the executable invoked.",
+    "This closes only the single-turn real-Claude prompt-consumption and turn-completion gate for the tested release-identical installed bytes. prompt.accepted alone remains an acceptance receipt, not a general delivery or completion guarantee.",
+    "This does not qualify Windows named-pipe ACLs or same-user confidentiality, multiline prompts, working-agent steering, concurrent target-generation or closed-ID reuse, native conversation restore, other providers, response quality, or sustained daily-driver use."
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "sanitization": {
+    "schemaVersion": 1,
+    "transformation": "normalized-sanitized-derivative",
+    "sourceCleanupReceiptSha256": "84a902b6fcebd33d712b4d8ef71bdfdfbe5e1edac8bec086c1eb81699d6cf493",
+    "notableSensitiveFieldsRemoved": [
+      "sourceStatePath",
+      "dispatchSid"
+    ]
+  },
+  "generatedAt": "2026-08-01T21:52:02.3135182+00:00",
+  "verdict": "safe_cleanup_complete",
+  "runId": "48070cd05abad3e4eb64e874774b0baf",
+  "qualificationEvidence": "stage1-windows-real-claude-48070cd0.json",
+  "terminalClosedOrPreviouslyClosed": true,
+  "worktreeRemovedOrPreviouslyRemoved": true,
+  "forceUsed": false,
+  "unknownPromptAcknowledgedByScript": false,
+  "recoveredTerminalGenerationByScript": false,
+  "claudeProjectStatePurgedOrPreviouslyAbsent": true,
+  "ownedHerdrSessionStoppedAndDeletedOrAlreadyAbsent": true,
+  "qualificationRootRemoved": true,
+  "methodLimits": [
+    "This receipt records completed cleanup of the nonce-owned qualification cell; it does not independently prove provider prompt consumption or turn completion.",
+    "No prompt, response, provider transcript, debug-log content, local path, provider session identifier, Dispatch session identifier, or prompt identifier is retained."
+  ]
+}

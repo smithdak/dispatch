@@ -10,5 +10,6 @@ These records explain accepted choices and their consequences. The
 | [ADR 0003 — Herdr Windows orchestration](0003-herdr-windows-orchestration.md) | Which retained-terminal backend does Stage 1 use, and where is the adapter boundary? |
 | [ADR 0004 — Herdr namespaces and restart generations](0004-herdr-namespaces-and-restart-generations.md) | How are server namespaces and post-restart terminal generations identified and recovered? |
 | [ADR 0005 — Private Herdr prompt transport](0005-private-herdr-prompt-transport.md) | How can Dispatch submit a prompt without placing its body in argv or the ledger? |
+| [ADR 0006 — Work intelligence ledger](0006-work-intelligence-ledger.md) | How does Dispatch identify work and prevent concurrent duplicate attempts without conflating work with sessions? |
 
 Return to the [documentation index](../README.md).

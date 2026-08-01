@@ -417,6 +417,8 @@ Verified 2026-07-30 unless noted.
 
 _v0.4 — Stage 0 released; Herdr lifecycle and cold-restart recovery qualified against
 exact published artifacts, as is the private Windows named-pipe synthetic transport
-profile. The full Stage 1 dogfood gate remains open until real-provider prompt delivery,
-named-pipe ACL behavior, layouts, concurrent mutation stress, native conversation
-recovery, and sustained daily use are proved._
+profile. On 2026-08-01, one isolated real-Claude prompt and completed turn passed through
+recovered local evidence using release-identical installed Windows bytes. The full Stage
+1 dogfood gate remains open, including named-pipe ACL behavior, multiline and working-
+agent prompting, layouts, concurrent mutation stress, native conversation recovery, and
+sustained daily use._

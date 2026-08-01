@@ -14,13 +14,15 @@ receipts remain nested because each is an independently navigated collection.
 
 ## Tutorials
 
-- [Getting started](getting-started.md) — install Dispatch, create a worktree, observe
-  the session, merge committed work, and clean up.
+- [Getting started](getting-started.md) — install Dispatch, identify work, create a
+  worktree, merge committed work, complete the roadmap item, and clean up.
 
 ## How-to guides
 
 - [Agent workflows](agent-workflows.md) — query authoritative history and interpret
   prior outcomes as an agent.
+- [Work intelligence architecture](intelligence-architecture.md) — durable work identity,
+  duplicate prevention, roadmap state, and briefing boundaries.
 - [Windows agent sessions](windows-agent-sessions.md) — open, focus, prompt, recover,
   close, and remove a Herdr-backed session.
 - [Claude Code integration](claude-code.md) — install hooks at user or project scope and
