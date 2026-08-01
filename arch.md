@@ -414,6 +414,7 @@ Verified 2026-07-30 unless noted.
 ---
 
 _v0.4 — Stage 0 released; Herdr lifecycle and exact-artifact restart recovery qualified;
-private Windows named-pipe prompting implemented and source-tested. The full Stage 1
-dogfood gate remains open until compiled prompt delivery, layouts, concurrent mutation
-stress, native conversation recovery, and sustained daily use are proved._
+private Windows named-pipe prompting qualified against a clean local compiled candidate.
+The full Stage 1 dogfood gate remains open until exact-artifact and real-provider prompt
+delivery, layouts, concurrent mutation stress, native conversation recovery, and
+sustained daily use are proved._

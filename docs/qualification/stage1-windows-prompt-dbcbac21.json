@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-01T03:22:16.740Z",
+  "verdict": "pass",
+  "profile": "stdin_named_pipe_prompt",
+  "completeLocalSyntheticTransportGate": true,
+  "scope": "native-windows-isolated-herdr-private-prompt",
+  "artifactKind": "local-clean-build",
+  "source": {
+    "commit": "dbcbac217196279a7706bf0133b60b590b3147f1",
+    "branch": "agent/windows-private-prompt",
+    "cleanBeforeAndAfterQualification": true,
+    "qualifierSha256": "cb731e96f78b5baff794e87b276561cd1bd649c5adb87f22d25acd7d036c90d3"
+  },
+  "verification": {
+    "bunVersion": "1.3.14",
+    "bunSha256": "0187f68d843f825a72ada4a7eca60db896ed753759a7f8252edcd31ac1bf1b9c",
+    "typecheckPassed": true,
+    "importBoundariesPassed": true,
+    "testsPassed": 206,
+    "testsFailed": 0,
+    "assertions": 1343,
+    "compiledLifecyclePassed": true
+  },
+  "platform": {
+    "os": "win32",
+    "architecture": "x64"
+  },
+  "dispatch": {
+    "version": "0.2.0-alpha.3",
+    "buildBun": "1.3.14",
+    "sha256": "71c15302635a180d2c39bef4b09be8c280d2e165897563d9957e1a4d4b89dae3"
+  },
+  "herdr": {
+    "version": "0.7.5-preview.2026-07-29-44b3adb12552",
+    "protocol": 18,
+    "sha256": "d0179e4673f944d9ac12174da0a533ea34a7cc5ee555dba208ffc4131fc38f4d",
+    "namedSession": "redacted-prefix-plus-128-bit-nonce",
+    "isolatedConfig": true,
+    "paneHistoryDisabled": true,
+    "defaultSessionAddressed": false
+  },
+  "syntheticAgent": {
+    "imageName": "codex.exe",
+    "sha256": "0541cdd1ec4ca1be34be277604963b96862bdd965407d4b698bdf6aa42cdf9e4",
+    "externalModelInvoked": false
+  },
+  "observations": {
+    "promptEnteredThroughStdinOnly": true,
+    "promptIdCanonical": true,
+    "preflightAndResponseTargetGenerationMatched": true,
+    "herdrAcceptanceObserved": true,
+    "syntheticPaneOutputObserved": true,
+    "expectedGeneratedMarkerObserved": true,
+    "ledgerReceiptStates": [
+      "prompt.intent",
+      "prompt.accepted"
+    ],
+    "ledgerReceiptsExactlyOnce": true
+  },
+  "privacy": {
+    "candidateArgvPrivateValuesAbsent": true,
+    "candidateEnvironmentPrivateValuesAbsent": true,
+    "herdrArgvPrivateValuesAbsent": true,
+    "allQualifierChildArgvPrivateValuesAbsent": true,
+    "ledgerCanaryAbsent": true,
+    "ledgerBodyAbsent": true,
+    "receiptsBodyHashAndLengthFree": true,
+    "retainedEvidencePrivateValuesAbsent": true
+  },
+  "retrySafety": {
+    "pinnedHerdrSourceCommit": "44b3adb125524ea9a55739eee3776f922f2115ad",
+    "zeroWriteRejectionCodes": [
+      "empty_agent_prompt",
+      "agent_not_ready",
+      "agent_prompt_failed"
+    ],
+    "allOtherStructuredErrorsBecomeOutcomeUnknown": true,
+    "automaticUnknownOutcomeRetry": false
+  },
+  "cleanup": {
+    "syntheticAgentReleased": true,
+    "terminalCloseConfirmed": true,
+    "qualificationWorktreeRemovedCleanly": true,
+    "nonceNamedHerdrSessionStoppedAndDeleted": true,
+    "temporaryFilesRemoved": true,
+    "errors": []
+  },
+  "rawEvidenceSha256": "90e1d1050b9230135482fd394349a75b4314295c1afddfc7757dbd7215ee5934",
+  "methodLimits": [
+    "This is local clean-build evidence, not a downloaded release-artifact receipt.",
+    "The disposable codex.exe is a native line-reader fixture, not OpenAI Codex; no provider transcript, model turn, or paid model was exercised.",
+    "Herdr acceptance proves queue acceptance and scheduled Enter, not physical PTY delivery; observed pane output proves delivery only for this fixture run.",
+    "Herdr protocol 18 cannot condition agent.prompt on terminal_id, so the immediate full-target preflight bounds but does not eliminate the preflight-to-write race.",
+    "Herdr exposes no server-process ownership token; the 128-bit session nonce prevents accidental collision but does not authenticate the serving process against an adversarial local actor.",
+    "The Windows named-pipe ACL was not independently verified, so no confidentiality claim is made against same-user processes.",
+    "Multiline prompts, working-agent steering, native provider behavior, concurrent generation-change stress, exact-release-artifact qualification, and sustained daily-driver use remain open."
+  ]
+}

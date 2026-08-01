@@ -21,10 +21,12 @@ terminal generation before reuse, and a fresh command ran after every restart. T
 remains an alpha slice: private prompt delivery, layouts, concurrent mutation stress,
 native agent-conversation restore, and sustained daily use remain open.
 
-The current source candidate adds private, stdin-only prompt submission over Herdr's
-Windows named pipe. It has source-level tests but is not part of alpha.2 and is not a
-release-qualified claim until a compiled Windows artifact passes the dedicated prompt
-profile.
+The clean local `0.2.0-alpha.3` candidate at commit `dbcbac2` adds private, stdin-only
+prompt submission over Herdr's Windows named pipe. Its compiled Windows artifact passed
+the isolated native prompt profile with a disposable foreground `codex.exe` line-reader,
+body-free receipts, observed pane output, and complete cleanup. No real provider or model
+was invoked. This is local candidate evidence, not an alpha.2 or exact-release-artifact
+claim.
 
 ## Requirements
 
@@ -311,7 +313,7 @@ test/
   integration/             real Git worktree lifecycle
 skills/dispatch-history/   agent-facing history query procedure
 docs/decisions/            implementation ADRs
-arch.md                    architecture specification v0.3
+arch.md                    architecture specification v0.4
 ```
 
 ## Stage boundaries
@@ -323,10 +325,10 @@ arch.md                    architecture specification v0.3
 - Stage 1: Herdr is selected and the namespace-bound `open` / `status` / `close`
   lifecycle plus five-cycle cold-restart recovery are implemented and qualified against
   the exact published Windows artifact. Private stdin-to-named-pipe prompting is
-  implemented and source-tested but still needs compiled native and exact-release-artifact
-  qualification. Multiline input, layouts, concurrent mutation stress, native
-  agent-conversation restore, and the two-week daily-driver displacement test remain
-  open; Stage 1 is not complete.
+  implemented and qualified against a clean local compiled candidate; exact-release and
+  real-provider qualification remain open. Multiline input, layouts, concurrent mutation
+  stress, native agent-conversation restore, and the two-week daily-driver displacement
+  test remain open; Stage 1 is not complete.
 - Stage 2: only the filesystem probe harness exists; no provisioning engine ships before
   the O3 divergence-safety spike.
 - Stage 3: merge outcomes and a basic history skill exist; review handoff and richer
@@ -384,7 +386,12 @@ use.
   to the [`v0.2.0-alpha.2` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.2),
   and the sanitized receipt is retained in
   [`stage1-release-runtime-evidence-43fb9766.json`](docs/qualification/stage1-release-runtime-evidence-43fb9766.json).
-- Stage 1 remains alpha: compiled and exact-release-artifact prompt qualification,
+- Clean local candidate `dbcbac2` passed the isolated native private-prompt profile. One
+  stdin-only prompt reached a disposable foreground `codex.exe` fixture, the ledger
+  retained only body-free intent and accepted receipts, pane history was disabled, no
+  model was invoked, and all owned resources were removed. See
+  [`stage1-windows-prompt-dbcbac21.json`](docs/qualification/stage1-windows-prompt-dbcbac21.json).
+- Stage 1 remains alpha: exact-release-artifact and real-provider prompt qualification,
   multiline prompts, concurrent focus-change stress, closed-workspace ID reuse stress,
   atomic snapshot-to-mutation fencing, native agent-conversation restore, and sustained
   daily-driver proof remain open.

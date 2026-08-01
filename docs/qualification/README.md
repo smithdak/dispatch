@@ -163,3 +163,41 @@ at merge commit `43fb976`. The same bytes are attached to the
 It closes the exact-artifact five-cycle restart gate, not prompt privacy, native agent
 conversation restore, concurrent focus-change or closed-ID reuse stress, an atomic
 full-generation mutation fence, or sustained daily-driver proof.
+
+## Stage 1 isolated Windows private prompt
+
+`scripts/qualify-windows-prompt.ts` requires native Windows x64, Bun `1.3.14`, a clean
+source HEAD, an explicit compiled `0.2.0-alpha.3` binary, an explicit Herdr executable,
+and a raw output path outside the source tree. It refuses dirty tracked or untracked
+source before allocating temp state or addressing Herdr, then proves the same HEAD,
+branch, clean status, and executable hashes after cleanup.
+
+The harness creates a nonce-named Herdr session with an isolated validated
+`pane_history = false` configuration and a disposable Git repository, Dispatch home,
+worktree root, and user/temp environment. It compiles a temporary native executable named
+`codex.exe`, waits until that exact foreground process is ready, and reports it as an idle
+Codex-kind agent. The helper decodes a generated marker only after receiving
+`QUALIFY <base64>` through the compiled candidate's stdin. This exercises Herdr's actual
+foreground-process check without invoking OpenAI Codex or another model.
+
+The run passes only if the marker appears in pane output; the raw ledger contains exactly
+one `prompt.intent` and one `prompt.accepted`; no prompt body, marker, hash, or length is
+retained; every child argv and candidate environment is private-value-free; and the
+agent, terminal, worktree, named session, and temporary files are all removed.
+
+Reproduce from a clean source commit:
+
+```powershell
+bun run scripts/qualify-windows-prompt.ts `
+  --binary .\dist\dsp.exe `
+  --herdr "C:\absolute\path\to\herdr.exe" `
+  --output (Join-Path $env:TEMP "dispatch-stage1-prompt.json")
+```
+
+[`stage1-windows-prompt-dbcbac21.json`](stage1-windows-prompt-dbcbac21.json) is the
+sanitized receipt for clean source commit `dbcbac2`. It binds the local binary, qualifier,
+Bun runtime, Herdr executable, and disposable native helper by SHA-256; records the
+stdin/argv/environment/ledger privacy assertions; and confirms complete cleanup. It is
+local compiled-candidate evidence, not downloaded release-artifact, genuine Codex,
+provider-turn completion, multiline, concurrent target-rollover, named-pipe ACL, or
+sustained daily-driver evidence.

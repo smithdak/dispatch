@@ -1,11 +1,12 @@
 # ADR 0005 — Private Herdr prompting is receipt-first and non-retriable when uncertain
 
-- Status: accepted for the Stage 1 Windows alpha; native compiled qualification pending
+- Status: accepted for the Stage 1 Windows alpha; clean local compiled qualification
+  passed at `dbcbac2`; exact-release and real-provider qualification pending
 - Date: 2026-07-31
 - Scope: private prompt input, Herdr socket transport, concurrency, and outcome receipts
 - As-of basis: Herdr `0.7.5-preview.2026-07-29-44b3adb12552`, protocol `18`,
-  pinned source commit `44b3adb12552`, the installed protocol schema, and live read-only
-  named-pipe connectivity from Bun `1.3.14`
+  pinned source commit `44b3adb12552`, the installed protocol schema, and live native
+  prompt qualification from a clean Bun `1.3.14` build
 
 ## Context
 
@@ -115,8 +116,8 @@ once delivery.
   Dispatch's expected full target generation. The repeated immediate preflight and
   post-response identity check bound and detect some races; they do not eliminate the
   preflight-to-write TOCTOU or undo a misdirected prompt.
-- The response precedes the scheduled Enter in the current implementation. The receipt
-  is therefore named `accepted`, not `delivered` or `completed`.
+- Herdr schedules Enter for later and returns success without confirming physical
+  delivery. The receipt is therefore named `accepted`, not `delivered` or `completed`.
 - The Windows named-pipe ACL was not independently verified. No confidentiality claim is
   made against other processes running as the same user.
 - Multiline prompts, working-agent steering, separate wait/reconciliation, native
