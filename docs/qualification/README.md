@@ -109,3 +109,48 @@ at commit `004c0ad`. Those same bytes are attached to the
 The receipt does not close the prompt, restart/resume, concurrent focus-change,
 closed-workspace ID reuse, atomic snapshot fence, abrupt harness termination, or
 sustained daily-driver gates.
+
+## Stage 1 isolated Windows cold restart
+
+`scripts/qualify-windows-restart.ts` qualifies recovery separately from the ordinary
+lifecycle profile. It requires native Windows x64, Bun `1.3.14`, a clean Git source tree,
+an explicit compiled binary, an explicit Herdr executable, a fresh Dispatch session, and
+a running default Herdr session. The output path must be outside the source tree.
+
+The supplied Herdr session prefix is only a prefix. The harness appends an internally
+generated 128-bit nonce, proves that name absent, starts that isolated namespace, and
+samples the default namespace/workspace/focus fingerprint before and throughout the
+run. For each cycle it:
+
+1. stops only the nonce-named server and confirms it is listed stopped;
+2. confirms its socket API rejects a snapshot request;
+3. starts the same named server and waits for protocol-18 readiness;
+4. invokes `dsp open --recover-restored-terminal` only inside that witnessed recovery
+   window;
+5. verifies stable server/workspace/tab/pane/cwd identity, one new terminal ID, one
+   ledger increment, linked `previousMuxTarget` provenance, and a fresh terminal command.
+
+Normal `dsp open`, `status`, and `close` remain fail-closed on terminal rollover. The
+recovery flag is explicit operator authority; the harness does not infer a restart from
+shape alone. Cleanup deletes the named session only after Dispatch terminal-close proof.
+If cleanup cannot close or prove absence, it stops and retains the session for diagnosis.
+
+Reproduce against a disposable session:
+
+```powershell
+$created = .\dist\dsp.exe new "Stage 1 restart qualification" `
+  --repo (Get-Location).Path --json | ConvertFrom-Json
+bun run scripts/qualify-windows-restart.ts --binary .\dist\dsp.exe `
+  --herdr "C:\absolute\path\to\herdr.exe" --sid $created.sid `
+  --herdr-session-prefix dispatch-restart --cycles 5 `
+  --output (Join-Path $env:TEMP "dispatch-stage1-restart.json")
+.\dist\dsp.exe remove $created.sid
+```
+
+[`stage1-windows-restart-51943d74.json`](stage1-windows-restart-51943d74.json) is
+the sanitized receipt for clean source commit `51943d74`. It binds the candidate binary,
+qualifier, Herdr executable, source commit, and Bun runtime; records ledger sequences
+`3` through `8` and hashed terminal generations; and confirms the disposable worktree,
+branch, and named Herdr namespace were removed. It is local compiled-candidate evidence,
+not downloaded release-artifact, prompt-privacy, continuous concurrent-mutation, native
+agent-conversation restore, or daily-driver evidence.
