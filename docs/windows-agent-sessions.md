@@ -39,8 +39,8 @@ dsp open <sid>
 
 The first `open` creates a Herdr workspace at the Dispatch worktree if no valid target
 exists. A later `open` focuses the same receipted target; it does not duplicate it.
-Start Claude Code, Codex, or another supported foreground agent yourself inside that
-terminal.
+Start Claude Code, Codex, or another Herdr-recognized foreground agent yourself inside
+that terminal.
 
 `status` is read-only. It reports the durable Dispatch lifecycle separately from the
 live terminal and agent state.

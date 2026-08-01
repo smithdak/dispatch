@@ -15,7 +15,7 @@ agents, scripts, and stable field-level inspection.
 | `dsp open <sid> [--recover-restored-terminal] [--json]` | Create or focus the receipted Windows Herdr target. |
 | `dsp status <sid> [--json]` | Compare durable session state with live Herdr state without mutation. |
 | `dsp close <sid> [--recover-restored-terminal] [--json]` | Close the verified Herdr target and record the terminal receipt. |
-| `dsp prompt <sid> --stdin [--acknowledge-unknown <prompt-id>] [--json]` | Submit one private stdin prompt, optionally acknowledging an earlier unknown outcome. |
+| `dsp prompt <sid> --stdin [--acknowledge-unknown <prompt-id>] [--json]` | Submit one stdin-only prompt, optionally acknowledging an earlier unknown outcome. |
 | `dsp prompt <sid> --acknowledge-unknown <prompt-id> [--json]` | Clear one unresolved prompt barrier without sending another prompt. |
 | `dsp reindex [--json]` | Rebuild the disposable SQLite projection from authoritative ledgers. |
 | `dsp hooks install claude [--project <path>] [--command <path>] [--json]` | Install Claude Code hooks at user or project scope. |

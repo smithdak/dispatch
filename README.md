@@ -2,6 +2,9 @@
 
 Durable work sessions for coding agents.
 
+[![CI](https://github.com/smithdak/dispatch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/smithdak/dispatch/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/smithdak/dispatch?include_prereleases&sort=semver&label=release)](https://github.com/smithdak/dispatch/releases)
+
 Dispatch gives each task its own Git worktree and session ID. It records structured
 agent activity in an append-only ledger, keeps fast session views in a rebuildable
 index, and gives humans and agents one history to inspect before work is repeated.
@@ -14,6 +17,8 @@ optional retained-terminal lifecycle around an agent you start.
 > Linux x64 is secondary. Retained terminals and stdin-only prompt transport are an alpha
 > Windows integration and require Herdr protocol `18`. See [project status](docs/project-status.md)
 > for the exact proof boundary and open gates.
+
+[Get started](docs/getting-started.md) · [Documentation](docs/README.md) · [Project status](docs/project-status.md)
 
 ## For agents
 
