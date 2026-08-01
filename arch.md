@@ -101,12 +101,12 @@ Unchanged from v0.1 except where the new scope adds a row.
 | Multiplexer                | Herdr CLI through platform port  | protocol `18`        | hard-coded tmux        |
 | Diff review                | `hunk` or `tuicr` (external)     | see O1               | building a review UI   |
 
-**Performance note, stated honestly.** Bun is not the fast choice; it is the maintainable
-choice. Cold start is ~10–20 ms compiled with bytecode versus ~3 ms for Rust — invisible
-per invocation against a ~100 ms perception threshold. Binary size is ~60–100 MB versus
-~10 MB, which is a real product-feel cost with no functional consequence. The performance
-claims in this spec come from §5 (provisioning), not from the runtime. If the artifact size
-becomes intolerable, that is a legitimate trigger to revisit — see §9.
+**Performance note, stated honestly.** Bun is a maintainability choice, not a speed claim.
+The retained native Windows measurement for the compiled `dsp --version` process is
+57.885 ms median and 61.450 ms p95, missing the original `<25 ms` target. The alpha.3
+Windows artifact is 99,625,984 bytes. These are product measurements; earlier bare-runtime
+estimates are not substitutes for them. If startup or artifact size becomes intolerable,
+that is a legitimate trigger to revisit — see §9.
 
 Bun-specific surface stays confined to spawn, shell, and sqlite so a future port remains a
 weekend rather than a rebuild.
@@ -189,9 +189,11 @@ Closed set. Adding a kind is a schema version bump; adding a field to `data` is 
 | Git        | `git.committed`, `git.merged`, `git.discarded`                 |
 | Outcome    | `outcome.recorded`                                             |
 
-`outcome.recorded` is the row that makes the ledger worth keeping: disposition
-(merged / discarded / abandoned), diffstat, wall duration, total cost, turn count. It is
-what answers "was this session worth running," and no other tool in this space records it.
+`outcome.recorded` retains disposition (merged / discarded / abandoned), diffstat, wall
+duration, turn count, and the sum of any observed `usage.recorded` cost. Alpha.3 adapters
+do not emit usage events, so `totalCost: 0` means cost was not observed, not that provider
+spend was zero. This row is the durable answer to whether work integrated and what the
+session measurably produced.
 
 ### Storage and projection
 
@@ -413,8 +415,8 @@ Verified 2026-07-30 unless noted.
 
 ---
 
-_v0.4 — Stage 0 released; Herdr lifecycle and exact-artifact restart recovery qualified;
-private Windows named-pipe prompting qualified against a clean local compiled candidate.
-The full Stage 1 dogfood gate remains open until exact-artifact and real-provider prompt
-delivery, layouts, concurrent mutation stress, native conversation recovery, and
-sustained daily use are proved._
+_v0.4 — Stage 0 released; Herdr lifecycle and cold-restart recovery qualified against
+exact published artifacts, as is the private Windows named-pipe synthetic transport
+profile. The full Stage 1 dogfood gate remains open until real-provider prompt delivery,
+named-pipe ACL behavior, layouts, concurrent mutation stress, native conversation
+recovery, and sustained daily use are proved._

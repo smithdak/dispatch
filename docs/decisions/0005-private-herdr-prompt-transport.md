@@ -1,12 +1,13 @@
 # ADR 0005 — Private Herdr prompting is receipt-first and non-retriable when uncertain
 
-- Status: accepted for the Stage 1 Windows alpha; clean local compiled qualification
-  passed at `dbcbac2`; exact-release and real-provider qualification pending
+- Status: accepted for the Stage 1 Windows alpha; clean local qualification passed at
+  `dbcbac2` and exact-release synthetic transport qualification passed at `421efef`;
+  real-provider and named-pipe ACL qualification pending
 - Date: 2026-07-31
 - Scope: private prompt input, Herdr socket transport, concurrency, and outcome receipts
 - As-of basis: Herdr `0.7.5-preview.2026-07-29-44b3adb12552`, protocol `18`,
   pinned source commit `44b3adb12552`, the installed protocol schema, and live native
-  prompt qualification from a clean Bun `1.3.14` build
+  prompt qualification of the exact `v0.2.0-alpha.3` Windows asset built by Bun `1.3.14`
 
 ## Context
 
@@ -120,9 +121,9 @@ once delivery.
   delivery. The receipt is therefore named `accepted`, not `delivered` or `completed`.
 - The Windows named-pipe ACL was not independently verified. No confidentiality claim is
   made against other processes running as the same user.
-- Multiline prompts, working-agent steering, separate wait/reconciliation, native
-  exact-artifact qualification, concurrent generation-change stress, and sustained
-  daily-driver proof remain open.
+- Multiline prompts, working-agent steering, separate wait/reconciliation, real-provider
+  qualification, concurrent generation-change stress, and sustained daily-driver proof
+  remain open.
 - If Herdr adds an stdin-safe conditional prompt endpoint with a server-incarnation
   fence, idempotency key, and delivery acknowledgement, Dispatch should prefer it and
   retire this protocol-specific residual.

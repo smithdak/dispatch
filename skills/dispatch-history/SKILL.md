@@ -29,8 +29,10 @@ merged or discarded, or when the user asks what happened in earlier agent sessio
    ```
 
 4. Use `tool.called`, `tool.result`, `git.merged`, and `outcome.recorded` events to report
-   what was attempted, whether it integrated, and the observed cost/turn/diffstat facts.
-   Do not infer success from agent lifecycle events alone.
+   what was attempted, whether it integrated, and the observed turn/diffstat facts. Report
+   cost only when `usage.recorded` events exist. In alpha.3, `totalCost: 0` means no usage
+   cost was observed; it does not prove zero provider spend. Do not infer success from
+   agent lifecycle events alone.
 
 5. If a command reports ledger corruption, stop and surface it. Do not substitute the
    SQLite projection for the authoritative JSONL record. `dsp reindex` repairs only the

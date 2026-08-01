@@ -11,6 +11,13 @@ Qualification records keep three evidence classes separate:
    Fixture-backed stdin and operator reports are useful but are labelled as such; neither
    is silently promoted to independently retained runtime evidence.
 
+## Release decision records
+
+- [`stage0-release-2026-07-31.md`](stage0-release-2026-07-31.md) records the dated Stage 0
+  release verdict, including the accepted performance exception and residual risks.
+- [`stage0-release-template.md`](stage0-release-template.md) is the reusable evidence
+  template for a future Stage 0 release candidate.
+
 ## Reproduce the local measurements
 
 Use the pinned Bun version to build, qualify, and benchmark the host binary:
@@ -201,3 +208,20 @@ stdin/argv/environment/ledger privacy assertions; and confirms complete cleanup.
 local compiled-candidate evidence, not downloaded release-artifact, genuine Codex,
 provider-turn completion, multiline, concurrent target-rollover, named-pipe ACL, or
 sustained daily-driver evidence.
+
+[`stage1-release-runtime-evidence-421efef6.json`](stage1-release-runtime-evidence-421efef6.json)
+is the sanitized receipt for the exact Windows asset from successful main
+[CI run 30707951490](https://github.com/smithdak/dispatch/actions/runs/30707951490)
+at commit `421efef`. The asset was uploaded to the draft release, downloaded back from
+GitHub, matched byte-for-byte with the executable extracted from the Actions artifact,
+and passed the same isolated private-prompt profile before the draft was published as the
+[`v0.2.0-alpha.3` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.3).
+The release retains the Windows and Linux executables, SHA-256 manifest, and this exact
+receipt. This closes the exact-release synthetic transport gate, not genuine Codex or
+provider-turn behavior, multiline input, concurrent target rollover, named-pipe ACL, or
+sustained daily-driver evidence.
+
+The retained receipt's `releaseDownloadByteIdenticalToActionsArtifact` field means that
+the downloaded release executable matched the executable extracted from the Actions ZIP.
+It does not compare the executable bytes with the ZIP archive bytes. The repository copy
+is intentionally unchanged so its SHA-256 remains identical to the published receipt.
