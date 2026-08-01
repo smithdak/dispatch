@@ -1,6 +1,6 @@
 {
   "name": "dispatch",
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.2",
   "private": true,
   "description": "Personal control plane for durable agentic work sessions",
   "type": "module",
@@ -25,6 +25,7 @@
     "build:matrix": "bun run scripts/build.ts --matrix",
     "qualify:binary": "bun run scripts/qualify-binary.ts",
     "qualify:windows-mux": "bun run scripts/qualify-windows-mux.ts",
+    "qualify:windows-restart": "bun run scripts/qualify-windows-restart.ts",
     "benchmark:stage0": "bun run scripts/benchmark-stage0.ts",
     "probe": "bun run scripts/probe.ts"
   },

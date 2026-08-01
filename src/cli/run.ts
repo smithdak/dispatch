@@ -28,7 +28,7 @@ import {
   UsageError,
 } from "./args";
 
-export const DISPATCH_VERSION = "0.2.0-alpha.1";
+export const DISPATCH_VERSION = "0.2.0-alpha.2";
 
 const HELP = `Dispatch — durable agentic work sessions
 
@@ -38,9 +38,9 @@ Usage:
   dsp log <sid> [--kind <kind>] [--limit <n>] [--json]
   dsp merge <sid> [--json]
   dsp remove <sid> [--force] [--json]
-  dsp open <sid> [--json]
+  dsp open <sid> [--recover-restored-terminal] [--json]
   dsp status <sid> [--json]
-  dsp close <sid> [--json]
+  dsp close <sid> [--recover-restored-terminal] [--json]
   dsp reindex [--json]
   dsp hooks install claude [--project <path>] [--command <path>] [--json]
   dsp doctor [--stage1] [--json]
@@ -213,12 +213,26 @@ async function runOpen(
   loadMux: () => Promise<MuxPort>,
   env: Environment,
 ): Promise<void> {
-  const parsed = parseArguments(args, { json: { type: "boolean" } });
-  requirePositionals(parsed, 1, 1, "dsp open <sid> [--json]");
+  const parsed = parseArguments(args, {
+    "recover-restored-terminal": { type: "boolean" },
+    json: { type: "boolean" },
+  });
+  requirePositionals(
+    parsed,
+    1,
+    1,
+    "dsp open <sid> [--recover-restored-terminal] [--json]",
+  );
   const result = await openTerminalSession(
     parsed.positionals[0]!,
     await loadMux(),
-    { env },
+    {
+      env,
+      allowRestoredGeneration: booleanOption(
+        parsed,
+        "recover-restored-terminal",
+      ),
+    },
   );
   reportProjectionWarnings(result.projectionWarnings);
   if (booleanOption(parsed, "json")) {
@@ -256,12 +270,26 @@ async function runClose(
   loadMux: () => Promise<MuxPort>,
   env: Environment,
 ): Promise<void> {
-  const parsed = parseArguments(args, { json: { type: "boolean" } });
-  requirePositionals(parsed, 1, 1, "dsp close <sid> [--json]");
+  const parsed = parseArguments(args, {
+    "recover-restored-terminal": { type: "boolean" },
+    json: { type: "boolean" },
+  });
+  requirePositionals(
+    parsed,
+    1,
+    1,
+    "dsp close <sid> [--recover-restored-terminal] [--json]",
+  );
   const result = await closeTerminalSession(
     parsed.positionals[0]!,
     await loadMux(),
-    { env },
+    {
+      env,
+      allowRestoredGeneration: booleanOption(
+        parsed,
+        "recover-restored-terminal",
+      ),
+    },
   );
   reportProjectionWarnings(result.projectionWarnings);
   if (booleanOption(parsed, "json")) {

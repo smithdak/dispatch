@@ -1,4 +1,10 @@
-export const MUX_TARGET_VERSION = 1 as const;
+export const MUX_TARGET_LEGACY_VERSION = 1 as const;
+export const MUX_TARGET_VERSION = 2 as const;
+
+export interface MuxServerNamespace {
+  readonly session: string | null;
+  readonly socket: string;
+}
 
 /**
  * Persisted identity for one mux-owned terminal generation.
@@ -7,7 +13,7 @@ export const MUX_TARGET_VERSION = 1 as const;
  * are intentionally excluded because they are not stable identities.
  */
 export interface MuxTargetV1 {
-  readonly version: typeof MUX_TARGET_VERSION;
+  readonly version: typeof MUX_TARGET_LEGACY_VERSION;
   readonly backend: "herdr";
   readonly protocol: number;
   readonly workspaceId: string;
@@ -17,7 +23,19 @@ export interface MuxTargetV1 {
   readonly canonicalCwd: string;
 }
 
-export type MuxTarget = MuxTargetV1;
+export interface MuxTargetV2 {
+  readonly version: typeof MUX_TARGET_VERSION;
+  readonly backend: "herdr";
+  readonly protocol: number;
+  readonly server: MuxServerNamespace;
+  readonly workspaceId: string;
+  readonly tabId: string;
+  readonly paneId: string;
+  readonly terminalId: string;
+  readonly canonicalCwd: string;
+}
+
+export type MuxTarget = MuxTargetV1 | MuxTargetV2;
 
 export interface MuxCapabilities {
   readonly backend: "herdr";
@@ -26,6 +44,7 @@ export interface MuxCapabilities {
   readonly clientVersion: string;
   readonly serverVersion: string;
   readonly protocol: number;
+  readonly server: MuxServerNamespace;
   readonly detachedServerDaemon: boolean;
   readonly liveHandoff: boolean;
 }

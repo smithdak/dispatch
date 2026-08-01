@@ -12,12 +12,17 @@ const sid = "01kywyrp5e-2y5qv64427d1npck";
 const binary = "C:\\Dispatch\\dsp.exe";
 const herdr = "C:\\Program Files\\Herdr\\herdr.exe";
 const cwd = "C:\\Dispatch Worktrees\\qualification";
+const herdrSocket = "C:\\Users\\operator\\AppData\\Roaming\\herdr\\herdr.sock";
 
-function target(generation: "one" | "two") {
+function target(
+  generation: "one" | "two",
+  server = { session: null as string | null, socket: herdrSocket },
+) {
   return {
-    version: 1,
+    version: 2,
     backend: "herdr",
     protocol: 18,
+    server,
     workspaceId: `w-${generation}`,
     tabId: `t-${generation}`,
     paneId: `p-${generation}`,
@@ -30,14 +35,27 @@ function running(muxTarget = target("one"), focused = true) {
   return { state: "running", target: muxTarget, focused } as const;
 }
 
-function doctor() {
+function doctor(
+  server = { session: null as string | null, socket: herdrSocket },
+) {
   return {
     readyForStage0: true,
     readyForStage1: true,
+    herdrServer: server,
     checks: [
       { name: "platform", status: "ok", detail: "win32/x64" },
       { name: "herdr", status: "ok", detail: "protocol 18" },
     ],
+  };
+}
+
+function herdrStatus(
+  session: string | null = null,
+  socket = herdrSocket,
+) {
+  return {
+    client: { session },
+    server: { running: true, session, socket },
   };
 }
 
@@ -84,6 +102,7 @@ function open(
     target: muxTarget,
     disposition,
     receipt,
+    recovery: null,
     muxStatus: running(muxTarget),
     projectionWarnings: [],
   };
@@ -139,6 +158,8 @@ describe("native Windows mux qualification harness", () => {
         sid,
         "--output",
         "evidence/result.json",
+        "--herdr-session",
+        "dispatch-restart-proof",
       ]),
     ).toEqual({
       binary: resolve("dist/dsp.exe"),
@@ -146,6 +167,7 @@ describe("native Windows mux qualification harness", () => {
       exerciseExternalClose: false,
       close: false,
       output: resolve("evidence/result.json"),
+      herdrSession: "dispatch-restart-proof",
     });
   });
 
@@ -208,9 +230,15 @@ describe("native Windows mux qualification harness", () => {
   });
 
   test("uses separate shell-free processes and leaves the target open by default", async () => {
-    const one = target("one");
+    const selectedSession = "dispatch-restart-proof";
+    const selectedServer = {
+      session: selectedSession,
+      socket: "C:\\Users\\operator\\AppData\\Roaming\\herdr\\sessions\\dispatch-restart-proof\\herdr.sock",
+    };
+    const one = target("one", selectedServer);
     const script = new ScriptedRunner([
-      ok(doctor()),
+      ok(doctor(selectedServer)),
+      ok(herdrStatus(selectedSession, selectedServer.socket)),
       ok(snapshot("operator-workspace", ["operator-workspace"])),
       ok(status(null, 2)),
       ok(open(one, "created")),
@@ -223,7 +251,14 @@ describe("native Windows mux qualification harness", () => {
     ]);
 
     const evidence = await qualifyWindowsMux(
-      { binary, herdr, sid, exerciseExternalClose: false, close: false },
+      {
+        binary,
+        herdr,
+        herdrSession: selectedSession,
+        sid,
+        exerciseExternalClose: false,
+        close: false,
+      },
       dependencies(script),
     );
     script.done();
@@ -234,6 +269,7 @@ describe("native Windows mux qualification harness", () => {
     expect(evidence.inputs).toMatchObject({
       binary: { path: binary, sha256: "a".repeat(64) },
       herdr: { path: herdr, sha256: "a".repeat(64) },
+      herdrSession: selectedSession,
     });
     expect(evidence.focusRestoration).toEqual({
       attempted: true,
@@ -248,15 +284,61 @@ describe("native Windows mux qualification harness", () => {
     expect(
       script.invocations
         .filter((invocation) => invocation.executable === binary)
-        .every((invocation) => invocation.env?.DISPATCH_HERDR_BIN === herdr),
+        .every(
+          (invocation) =>
+            invocation.env?.DISPATCH_HERDR_BIN === herdr &&
+            invocation.env.DISPATCH_HERDR_SESSION === selectedSession,
+        ),
+    ).toBeTrue();
+    expect(
+      script.invocations
+        .filter((invocation) => invocation.executable === herdr)
+        .every(
+          (invocation) =>
+            invocation.args[0] === "--session" &&
+            invocation.args[1] === selectedSession,
+        ),
     ).toBeTrue();
     expect(script.invocations.filter((invocation) =>
       invocation.executable === binary && invocation.args[0] === "open"
     )).toHaveLength(2);
     expect(script.invocations.some((invocation) =>
       invocation.args[0] === "close" ||
-      (invocation.executable === herdr && invocation.args[0] === "workspace" && invocation.args[1] === "close")
+      (invocation.executable === herdr &&
+        invocation.args[2] === "workspace" &&
+        invocation.args[3] === "close")
     )).toBeFalse();
+  });
+
+  test("fails before open when compiled and direct probes resolve different sessions", async () => {
+    const selectedSession = "dispatch-restart-proof";
+    const selectedSocket =
+      "C:\\Users\\operator\\AppData\\Roaming\\herdr\\sessions\\dispatch-restart-proof\\herdr.sock";
+    const script = new ScriptedRunner([
+      ok(doctor()),
+      ok(herdrStatus(selectedSession, selectedSocket)),
+    ]);
+
+    await expect(
+      qualifyWindowsMux(
+        {
+          binary,
+          herdr,
+          herdrSession: selectedSession,
+          sid,
+          exerciseExternalClose: false,
+          close: false,
+        },
+        dependencies(script),
+      ),
+    ).rejects.toThrow("did not resolve the explicitly selected Herdr server namespace");
+    script.done();
+    expect(
+      script.invocations.some(
+        (invocation) =>
+          invocation.executable === binary && invocation.args[0] === "open",
+      ),
+    ).toBeFalse();
   });
 
   test("qualifies external-close recovery as a new generation and explicit terminal close", async () => {
@@ -264,6 +346,7 @@ describe("native Windows mux qualification harness", () => {
     const two = target("two");
     const script = new ScriptedRunner([
       ok(doctor()),
+      ok(herdrStatus()),
       ok(snapshot("operator-workspace", ["operator-workspace"])),
       ok(status(null, 2)),
       ok(open(one, "created")),
@@ -303,12 +386,49 @@ describe("native Windows mux qualification harness", () => {
     });
     expect(script.invocations.some((invocation) =>
       invocation.executable === herdr &&
-      invocation.args.join("\0") === ["workspace", "close", one.workspaceId].join("\0")
+      invocation.args.join("\0") ===
+        ["--session", "default", "workspace", "close", one.workspaceId].join("\0")
     )).toBeTrue();
     expect(script.invocations.some((invocation) =>
       invocation.executable === binary &&
       invocation.args.join("\0") === ["close", sid, "--json"].join("\0")
     )).toBeTrue();
+  });
+
+  test("accepts focus absence only when close removed the exact entry workspace", async () => {
+    const one = target("one");
+    const script = new ScriptedRunner([
+      ok(doctor()),
+      ok(herdrStatus()),
+      ok(snapshot(one.workspaceId, [one.workspaceId])),
+      ok(status(null, 2)),
+      ok(open(one, "created")),
+      ok(status(one, 3)),
+      ok(open(one, "recovered", "already_recorded")),
+      ok(status(one, 3)),
+      ok({
+        sid,
+        target: one,
+        muxOutcome: "closed",
+        alreadyClosed: false,
+        receipt: "recorded",
+        projectionWarnings: [],
+      }),
+      ok(status(one, 4, "closed", "absent")),
+      ok(snapshot(null, [])),
+    ]);
+
+    const evidence = await qualifyWindowsMux(
+      { binary, herdr, sid, exerciseExternalClose: false, close: true },
+      dependencies(script),
+    );
+    script.done();
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.focusRestoration).toEqual({
+      attempted: false,
+      outcome: "workspace_absent",
+      workspaceId: one.workspaceId,
+    });
   });
 
   test("writes failed evidence after strict JSON or exit validation", async () => {
@@ -341,6 +461,7 @@ describe("native Windows mux qualification harness", () => {
     const one = target("one");
     const script = new ScriptedRunner([
       ok(doctor()),
+      ok(herdrStatus()),
       ok(snapshot("operator-workspace", ["operator-workspace"])),
       ok(status(null, 2)),
       ok(open(one, "created")),
@@ -386,6 +507,7 @@ describe("native Windows mux qualification harness", () => {
     const one = target("one");
     const script = new ScriptedRunner([
       ok(doctor()),
+      ok(herdrStatus()),
       ok(snapshot("operator-workspace", ["operator-workspace", one.workspaceId])),
       ok(status(one, 3)),
       ok(snapshot("operator-workspace", ["operator-workspace", one.workspaceId])),
@@ -422,6 +544,7 @@ describe("native Windows mux qualification harness", () => {
     const wrongProtocol = { ...target("one"), protocol: 19 };
     const script = new ScriptedRunner([
       ok(doctor()),
+      ok(herdrStatus()),
       ok(snapshot("operator-workspace", ["operator-workspace"])),
       ok(status(null, 2)),
       ok({

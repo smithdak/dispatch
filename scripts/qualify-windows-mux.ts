@@ -19,6 +19,7 @@ export interface WindowsMuxQualificationOptions {
   readonly close: boolean;
   readonly output?: string;
   readonly herdr?: string;
+  readonly herdrSession?: string;
 }
 
 export interface ProcessInvocation {
@@ -38,10 +39,14 @@ export type ProcessRunner = (
   invocation: ProcessInvocation,
 ) => Promise<ProcessResult>;
 
-interface MuxTarget {
-  readonly version: 1;
+export interface MuxTarget {
+  readonly version: 2;
   readonly backend: "herdr";
   readonly protocol: number;
+  readonly server: {
+    readonly session: string | null;
+    readonly socket: string;
+  };
   readonly workspaceId: string;
   readonly tabId: string;
   readonly paneId: string;
@@ -70,6 +75,7 @@ interface DspOpen {
   readonly target: MuxTarget;
   readonly disposition: "created" | "recovered";
   readonly receipt: "recorded" | "already_recorded" | "recovered_after_append";
+  readonly recovery: "restored_terminal" | null;
   readonly muxStatus: Extract<DspStatus["muxStatus"], { readonly state: "running" }>;
   readonly projectionWarnings: readonly string[];
 }
@@ -86,6 +92,16 @@ interface DspClose {
 interface FocusSnapshot {
   readonly focusedWorkspaceId: string | null;
   readonly workspaceIds: readonly string[];
+}
+
+interface HerdrServerNamespace {
+  readonly session: string | null;
+  readonly socket: string;
+}
+
+interface QualifiedDoctor {
+  readonly report: JsonRecord;
+  readonly server: HerdrServerNamespace;
 }
 
 export type WindowsMuxQualificationProfile =
@@ -106,6 +122,7 @@ export interface WindowsMuxQualificationEvidence {
     readonly architecture: string;
     readonly binary: { readonly path: string; readonly sha256: string };
     readonly herdr: { readonly path: string; readonly sha256: string };
+    readonly herdrSession: string;
     readonly sid: string;
     readonly exerciseExternalClose: boolean;
     readonly terminalCloseRequested: boolean;
@@ -133,6 +150,7 @@ const TARGET_KEYS = [
   "version",
   "backend",
   "protocol",
+  "server",
   "workspaceId",
   "tabId",
   "paneId",
@@ -210,7 +228,7 @@ function pathIdentity(value: string): string {
 function target(value: unknown, path: string): MuxTarget {
   const item = record(value, path);
   exactKeys(item, TARGET_KEYS, path);
-  if (item.version !== 1 || item.backend !== "herdr") {
+  if (item.version !== 2 || item.backend !== "herdr") {
     throw new Error(`${path} has an unsupported target envelope.`);
   }
   const protocol = integer(item.protocol, `${path}.protocol`);
@@ -219,10 +237,23 @@ function target(value: unknown, path: string): MuxTarget {
   if (!absolutePath(canonicalCwd)) {
     throw new Error(`${path}.canonicalCwd must be absolute.`);
   }
+  const server = record(item.server, `${path}.server`);
+  exactKeys(server, ["session", "socket"], `${path}.server`);
+  if (
+    server.session !== null &&
+    (typeof server.session !== "string" || server.session.length === 0)
+  ) {
+    throw new Error(`${path}.server.session must be null or a non-empty string.`);
+  }
+  const socket = string(server.socket, `${path}.server.socket`);
+  if (!absolutePath(socket)) {
+    throw new Error(`${path}.server.socket must be absolute.`);
+  }
   return {
-    version: 1,
+    version: 2,
     backend: "herdr",
     protocol,
+    server: { session: server.session as string | null, socket },
     workspaceId: string(item.workspaceId, `${path}.workspaceId`),
     tabId: string(item.tabId, `${path}.tabId`),
     paneId: string(item.paneId, `${path}.paneId`),
@@ -288,7 +319,15 @@ function openResult(value: unknown, expectedSid: string): DspOpen {
   const item = record(value, "dsp open");
   exactKeys(
     item,
-    ["sid", "target", "disposition", "receipt", "muxStatus", "projectionWarnings"],
+    [
+      "sid",
+      "target",
+      "disposition",
+      "receipt",
+      "recovery",
+      "muxStatus",
+      "projectionWarnings",
+    ],
     "dsp open",
   );
   const sid = string(item.sid, "dsp open.sid");
@@ -308,6 +347,14 @@ function openResult(value: unknown, expectedSid: string): DspOpen {
       ["recorded", "already_recorded", "recovered_after_append"] as const,
       "dsp open.receipt",
     ),
+    recovery:
+      item.recovery === null
+        ? null
+        : enumeration(
+            item.recovery,
+            ["restored_terminal"] as const,
+            "dsp open.recovery",
+          ),
     muxStatus: status,
     projectionWarnings: stringArray(
       item.projectionWarnings,
@@ -346,9 +393,13 @@ function closeResult(value: unknown, expectedSid: string): DspClose {
   };
 }
 
-function doctorResult(value: unknown): JsonRecord {
+function doctorResult(value: unknown): QualifiedDoctor {
   const item = record(value, "dsp doctor");
-  exactKeys(item, ["readyForStage0", "readyForStage1", "checks"], "dsp doctor");
+  exactKeys(
+    item,
+    ["readyForStage0", "readyForStage1", "herdrServer", "checks"],
+    "dsp doctor",
+  );
   boolean(item.readyForStage0, "dsp doctor.readyForStage0");
   if (!boolean(item.readyForStage1, "dsp doctor.readyForStage1")) {
     throw new Error("Compiled doctor did not qualify Stage 1.");
@@ -365,7 +416,10 @@ function doctorResult(value: unknown): JsonRecord {
     );
     string(check.detail, `dsp doctor.checks[${position}].detail`);
   }
-  return item;
+  return {
+    report: item,
+    server: parseServerNamespace(item.herdrServer, "dsp doctor.herdrServer"),
+  };
 }
 
 function focusSnapshot(value: unknown): FocusSnapshot {
@@ -375,7 +429,7 @@ function focusSnapshot(value: unknown): FocusSnapshot {
     throw new Error("Herdr snapshot result.type must be session_snapshot.");
   }
   const snapshot = record(result.snapshot, "herdr snapshot.result.snapshot");
-  const focused = snapshot.focused_workspace_id;
+  const focused = snapshot.focused_workspace_id ?? null;
   if (focused !== null && typeof focused !== "string") {
     throw new Error("Herdr focused_workspace_id must be a string or null.");
   }
@@ -394,6 +448,56 @@ function focusSnapshot(value: unknown): FocusSnapshot {
   return { focusedWorkspaceId: focused, workspaceIds };
 }
 
+function parseServerNamespace(
+  value: unknown,
+  path: string,
+): HerdrServerNamespace {
+  const server = record(value, path);
+  exactKeys(server, ["session", "socket"], path);
+  if (
+    server.session !== null &&
+    (typeof server.session !== "string" || server.session.length === 0)
+  ) {
+    throw new Error(`${path}.session must be null or a non-empty string.`);
+  }
+  const socket = string(server.socket, `${path}.socket`);
+  if (!absolutePath(socket)) throw new Error(`${path}.socket must be absolute.`);
+  return { session: server.session as string | null, socket };
+}
+
+function herdrServerNamespace(
+  value: unknown,
+  selectedSession: string,
+): HerdrServerNamespace {
+  const payload = record(value, "Herdr status");
+  const client = record(payload.client, "Herdr status.client");
+  const server = record(payload.server, "Herdr status.server");
+  if (server.running !== true) throw new Error("Selected Herdr server is not running.");
+  const expectedSession = selectedSession === "default" ? null : selectedSession;
+  if (client.session !== expectedSession || server.session !== expectedSession) {
+    throw new Error(
+      `Herdr resolved session ${String(server.session)}, expected ${String(expectedSession)}.`,
+    );
+  }
+  return parseServerNamespace(
+    { session: expectedSession, socket: server.socket },
+    "Herdr status.server",
+  );
+}
+
+function assertTargetServer(
+  targetValue: MuxTarget,
+  expected: HerdrServerNamespace,
+  context: string,
+): void {
+  if (
+    targetValue.server.session !== expected.session ||
+    targetValue.server.socket !== expected.socket
+  ) {
+    throw new Error(`${context} did not bind the selected Herdr server namespace.`);
+  }
+}
+
 function herdrMutation(value: unknown, expectedType: string, operation: string): JsonRecord {
   const envelope = record(value, operation);
   const result = record(envelope.result, `${operation}.result`);
@@ -404,7 +508,18 @@ function herdrMutation(value: unknown, expectedType: string, operation: string):
 }
 
 function sameTarget(left: MuxTarget, right: MuxTarget): boolean {
-  return TARGET_KEYS.every((key) => left[key] === right[key]);
+  return (
+    left.version === right.version &&
+    left.backend === right.backend &&
+    left.protocol === right.protocol &&
+    left.server.session === right.server.session &&
+    left.server.socket === right.server.socket &&
+    left.workspaceId === right.workspaceId &&
+    left.tabId === right.tabId &&
+    left.paneId === right.paneId &&
+    left.terminalId === right.terminalId &&
+    left.canonicalCwd === right.canonicalCwd
+  );
 }
 
 function assertSameTarget(left: MuxTarget, right: MuxTarget, context: string): void {
@@ -433,6 +548,12 @@ function assertNewGeneration(previous: MuxTarget, next: MuxTarget): void {
     if (previous[field] !== next[field]) {
       throw new Error(`External-close recovery changed stable target field ${field}.`);
     }
+  }
+  if (
+    previous.server.session !== next.server.session ||
+    previous.server.socket !== next.server.socket
+  ) {
+    throw new Error("External-close recovery changed the Herdr server namespace.");
   }
 }
 
@@ -553,8 +674,24 @@ function executablePath(
   return path;
 }
 
+function herdrSession(value: string | undefined): string {
+  const session = value ?? "default";
+  if (session.length === 0 || session.includes("\0") || /[\r\n]/.test(session)) {
+    throw new Error("--herdr-session must be a non-empty single-line value.");
+  }
+  return session;
+}
+
+function herdrArgs(
+  session: string,
+  args: readonly string[],
+): readonly string[] {
+  return ["--session", session, ...args];
+}
+
 async function restoreFocus(
   herdr: string,
+  session: string,
   original: FocusSnapshot | undefined,
   runner: ProcessRunner,
 ): Promise<Readonly<Record<string, unknown>>> {
@@ -564,7 +701,12 @@ async function restoreFocus(
   const workspaceId = original.focusedWorkspaceId;
   try {
     const current = focusSnapshot(
-      await jsonCommand(herdr, ["api", "snapshot"], runner, "herdr focus restoration snapshot"),
+      await jsonCommand(
+        herdr,
+        herdrArgs(session, ["api", "snapshot"]),
+        runner,
+        "herdr focus restoration snapshot",
+      ),
     );
     if (current.focusedWorkspaceId === workspaceId) {
       return { attempted: false, outcome: "already_focused", workspaceId };
@@ -574,13 +716,18 @@ async function restoreFocus(
     }
     const result = await jsonCommand(
       herdr,
-      ["workspace", "focus", workspaceId],
+      herdrArgs(session, ["workspace", "focus", workspaceId]),
       runner,
       "herdr focus restoration",
     );
     herdrMutation(result, "workspace_info", "herdr focus restoration");
     const confirmed = focusSnapshot(
-      await jsonCommand(herdr, ["api", "snapshot"], runner, "herdr focus confirmation"),
+      await jsonCommand(
+        herdr,
+        herdrArgs(session, ["api", "snapshot"]),
+        runner,
+        "herdr focus confirmation",
+      ),
     );
     return confirmed.focusedWorkspaceId === workspaceId
       ? {
@@ -605,7 +752,13 @@ export function parseWindowsMuxQualificationOptions(
 ): WindowsMuxQualificationOptions {
   const values = new Map<string, string>();
   const flags = new Set<string>();
-  const valueOptions = new Set(["--binary", "--sid", "--output", "--herdr"]);
+  const valueOptions = new Set([
+    "--binary",
+    "--sid",
+    "--output",
+    "--herdr",
+    "--herdr-session",
+  ]);
   const flagOptions = new Set(["--exercise-external-close", "--close"]);
 
   for (let position = 0; position < args.length; position += 1) {
@@ -630,6 +783,7 @@ export function parseWindowsMuxQualificationOptions(
   if (!isSortableId(sid)) throw new Error("--sid must be a canonical Dispatch session ID.");
   const output = values.get("--output");
   const herdr = values.get("--herdr");
+  const selectedHerdrSession = values.get("--herdr-session");
   return {
     binary: resolve(binary),
     sid,
@@ -637,6 +791,9 @@ export function parseWindowsMuxQualificationOptions(
     close: flags.has("--close"),
     ...(output === undefined ? {} : { output: resolve(output) }),
     ...(herdr === undefined ? {} : { herdr: resolve(herdr) }),
+    ...(selectedHerdrSession === undefined
+      ? {}
+      : { herdrSession: selectedHerdrSession }),
   };
 }
 
@@ -656,7 +813,12 @@ export async function qualifyWindowsMux(
   const locatedHerdr = options.herdr ?? (dependencies.which ?? Bun.which)("herdr");
   if (!locatedHerdr) throw new Error("Herdr was not found on PATH; pass --herdr with its native executable path.");
   const herdr = executablePath(locatedHerdr, "Herdr executable", executableExists);
-  const dspEnv = { ...process.env, DISPATCH_HERDR_BIN: herdr };
+  const selectedHerdrSession = herdrSession(options.herdrSession);
+  const dspEnv = {
+    ...process.env,
+    DISPATCH_HERDR_BIN: herdr,
+    DISPATCH_HERDR_SESSION: selectedHerdrSession,
+  };
   if (
     options.output &&
     [binary, herdr].some(
@@ -672,6 +834,7 @@ export async function qualifyWindowsMux(
   const observations: Record<string, unknown> = {};
   const assertions: string[] = [];
   let originalFocus: FocusSnapshot | undefined;
+  let closedWorkspaceId: string | undefined;
   let focusRestoration: Readonly<Record<string, unknown>> = {
     attempted: false,
     outcome: "not_reached",
@@ -682,11 +845,36 @@ export async function qualifyWindowsMux(
     const doctor = doctorResult(
       await jsonCommand(binary, ["doctor", "--stage1", "--json"], runner, "dsp doctor --stage1", dspEnv),
     );
-    observations.doctor = doctor;
+    observations.doctor = doctor.report;
     assertions.push("compiled doctor reports Stage 1 ready");
 
+    const selectedServer = herdrServerNamespace(
+      await jsonCommand(
+        herdr,
+        herdrArgs(selectedHerdrSession, ["status", "--json"]),
+        runner,
+        "herdr selected-session status",
+      ),
+      selectedHerdrSession,
+    );
+    if (
+      doctor.server.session !== selectedServer.session ||
+      doctor.server.socket !== selectedServer.socket
+    ) {
+      throw new Error(
+        "Compiled doctor did not resolve the explicitly selected Herdr server namespace.",
+      );
+    }
+    observations.herdrServer = selectedServer;
+    assertions.push("compiled and direct probes resolve one explicit Herdr server namespace");
+
     originalFocus = focusSnapshot(
-      await jsonCommand(herdr, ["api", "snapshot"], runner, "herdr initial focus snapshot"),
+      await jsonCommand(
+        herdr,
+        herdrArgs(selectedHerdrSession, ["api", "snapshot"]),
+        runner,
+        "herdr initial focus snapshot",
+      ),
     );
     observations.initialFocus = originalFocus;
 
@@ -694,6 +882,9 @@ export async function qualifyWindowsMux(
       await jsonCommand(binary, ["status", options.sid, "--json"], runner, "dsp preflight status", dspEnv),
       options.sid,
     );
+    if (preflight.target) {
+      assertTargetServer(preflight.target, selectedServer, "Preflight status");
+    }
     if (preflight.dispatchLifecycle === "closed" || preflight.dispatchLifecycle === "removed") {
       throw new Error(`Dedicated session is already ${preflight.dispatchLifecycle}; refusing to open it.`);
     }
@@ -725,6 +916,7 @@ export async function qualifyWindowsMux(
       );
     }
     assertSameTarget(opened.target, opened.muxStatus.target, "Initial open");
+    assertTargetServer(opened.target, selectedServer, "Initial open");
     if (!opened.muxStatus.focused) throw new Error("Initial open did not focus its Herdr workspace.");
     observations.open = opened;
 
@@ -766,7 +958,11 @@ export async function qualifyWindowsMux(
     if (options.exerciseExternalClose) {
       const externalClose = await jsonCommand(
         herdr,
-        ["workspace", "close", opened.target.workspaceId],
+        herdrArgs(selectedHerdrSession, [
+          "workspace",
+          "close",
+          opened.target.workspaceId,
+        ]),
         runner,
         "external Herdr close",
       );
@@ -851,6 +1047,7 @@ export async function qualifyWindowsMux(
       }
       assertSameTarget(closedStatus.muxStatus.target, finalTarget, "Terminal status live target");
       observations.closedStatus = closedStatus;
+      closedWorkspaceId = finalTarget.workspaceId;
       assertions.push("explicit terminal close preflight-verifies the full current generation, closes its workspace ID, and records terminal lifecycle");
     } else {
       assertions.push("terminal close was not requested and was not invoked");
@@ -858,11 +1055,22 @@ export async function qualifyWindowsMux(
   } catch (error) {
     failure = error;
   } finally {
-    focusRestoration = await restoreFocus(herdr, originalFocus, runner);
+    focusRestoration = await restoreFocus(
+      herdr,
+      selectedHerdrSession,
+      originalFocus,
+      runner,
+    );
   }
 
+  const expectedClosedFocusAbsence =
+    options.close &&
+    focusRestoration.outcome === "workspace_absent" &&
+    originalFocus?.focusedWorkspaceId !== null &&
+    originalFocus?.focusedWorkspaceId === closedWorkspaceId;
   if (
     failure === undefined &&
+    !expectedClosedFocusAbsence &&
     !["not_needed", "already_focused", "restored"].includes(
       String(focusRestoration.outcome),
     )
@@ -897,6 +1105,7 @@ export async function qualifyWindowsMux(
       architecture,
       binary: { path: binary, sha256: binarySha256 },
       herdr: { path: herdr, sha256: herdrSha256 },
+      herdrSession: selectedHerdrSession,
       sid: options.sid,
       exerciseExternalClose: options.exerciseExternalClose,
       terminalCloseRequested: options.close,

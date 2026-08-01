@@ -8,14 +8,25 @@ import {
   type HerdrProcessRunner,
 } from "../../src/adapters/mux-windows/herdr";
 import {
+  MUX_TARGET_LEGACY_VERSION,
   MUX_TARGET_VERSION,
   MuxError,
-  type MuxTarget,
+  type MuxTargetV1,
+  type MuxTargetV2,
 } from "../../src/ports/mux";
 import { loadMuxPort } from "../../src/adapters/registry";
 
 const executable = "C:\\Program Files\\Herdr\\herdr.exe";
 const cwd = "D:\\worktrees\\dispatch\\S1";
+const serverNamespace = {
+  session: null,
+  socket: "C:\\Users\\operator\\AppData\\Roaming\\herdr\\herdr.sock",
+} as const;
+const namedSession = "dispatch-restart-qualification";
+const namedServerNamespace = {
+  session: namedSession,
+  socket: "C:\\Users\\operator\\AppData\\Roaming\\herdr\\dispatch-restart.sock",
+} as const;
 
 type ScriptStep =
   | HerdrProcessResult
@@ -61,6 +72,8 @@ function statusPayload(
     readonly compatible?: boolean;
     readonly clientProtocol?: number;
     readonly serverProtocol?: number;
+    readonly session?: string | null;
+    readonly socket?: string;
   } = {},
 ): unknown {
   return {
@@ -69,7 +82,7 @@ function statusPayload(
       channel: "preview",
       protocol: overrides.clientProtocol ?? HERDR_PROTOCOL,
       binary: executable,
-      session: null,
+      session: overrides.session ?? null,
     },
     server: {
       status: overrides.running === false ? "stopped" : "running",
@@ -81,8 +94,8 @@ function statusPayload(
         detached_server_daemon: true,
       },
       compatible: overrides.compatible ?? true,
-      socket: "C:\\Users\\operator\\AppData\\Roaming\\herdr\\herdr.sock",
-      session: null,
+      socket: overrides.socket ?? serverNamespace.socket,
+      session: overrides.session ?? null,
       restart_needed: false,
     },
   };
@@ -161,16 +174,32 @@ function pane(
   };
 }
 
-function target(overrides: Partial<MuxTarget> = {}): MuxTarget {
+function target(overrides: Partial<MuxTargetV2> = {}): MuxTargetV2 {
   return {
     version: MUX_TARGET_VERSION,
     backend: "herdr",
     protocol: HERDR_PROTOCOL,
+    server: serverNamespace,
     workspaceId: "wA",
     tabId: "wA:tA",
     paneId: "wA:pA",
     terminalId: "term_wA",
     canonicalCwd: cwd,
+    ...overrides,
+  };
+}
+
+function legacyTarget(overrides: Partial<MuxTargetV1> = {}): MuxTargetV1 {
+  const current = target();
+  return {
+    version: MUX_TARGET_LEGACY_VERSION,
+    backend: current.backend,
+    protocol: current.protocol,
+    workspaceId: current.workspaceId,
+    tabId: current.tabId,
+    paneId: current.paneId,
+    terminalId: current.terminalId,
+    canonicalCwd: current.canonicalCwd,
     ...overrides,
   };
 }
@@ -209,12 +238,148 @@ describe("Herdr Windows mux adapter", () => {
       clientVersion: "0.7.5-preview.2026-07-29-44b3adb12552",
       serverVersion: "0.7.5-preview.2026-07-29-44b3adb12552",
       protocol: HERDR_PROTOCOL,
+      server: serverNamespace,
       detachedServerDaemon: true,
       liveHandoff: false,
     });
     expect(script.invocations).toEqual([
-      { executable, args: ["status", "--json"], shell: false },
+      {
+        executable,
+        args: ["--session", "default", "status", "--json"],
+        shell: false,
+      },
     ]);
+  });
+
+  test("prefixes every named-session invocation and propagates that namespace into the V2 create receipt", async () => {
+    const script = scripted(
+      ok(
+        statusPayload({
+          session: namedServerNamespace.session,
+          socket: namedServerNamespace.socket,
+        }),
+      ),
+      ok(snapshotPayload()),
+      ok({
+        id: "cli:workspace:create",
+        result: {
+          type: "workspace_created",
+          workspace: workspace(),
+          tab: tab(),
+          root_pane: pane(),
+        },
+      }),
+    );
+    const mux = createHerdrMux({
+      executable,
+      session: namedSession,
+      runner: script.runner,
+    });
+
+    await expect(
+      mux.ensure({ logicalKey: "S1", canonicalCwd: cwd }),
+    ).resolves.toEqual({
+      target: target({ server: namedServerNamespace }),
+      disposition: "created",
+    });
+    expect(
+      script.invocations.map((invocation) => invocation.args.slice(0, 2)),
+    ).toEqual([
+      ["--session", namedSession],
+      ["--session", namedSession],
+      ["--session", namedSession],
+    ]);
+  });
+
+  test("rejects configured and live Herdr session mismatches", async () => {
+    const noInvocation = scripted(ok(statusPayload()));
+    const namedMux = createHerdrMux({
+      executable,
+      session: namedSession,
+      runner: noInvocation.runner,
+    });
+    const configuredError = await muxError(namedMux.status(target()), "conflict");
+    expect(configuredError.details.field).toBe("server.session");
+    expect(noInvocation.invocations).toHaveLength(0);
+
+    const wrongLiveSession = scripted(
+      ok(
+        statusPayload({
+          session: "another-session",
+          socket: namedServerNamespace.socket,
+        }),
+      ),
+    );
+    const liveError = await muxError(
+      createHerdrMux({
+        executable,
+        session: namedSession,
+        runner: wrongLiveSession.runner,
+      }).probe(),
+      "conflict",
+    );
+    expect(liveError.details).toMatchObject({
+      expectedSession: namedSession,
+      clientSession: "another-session",
+      serverSession: "another-session",
+    });
+  });
+
+  test("rejects an exact live socket mismatch before inspecting target IDs", async () => {
+    const liveSocket =
+      "C:\\Users\\operator\\AppData\\Roaming\\herdr\\replacement.sock";
+    const script = scripted(
+      ok(statusPayload({ socket: liveSocket })),
+      ok(snapshotPayload()),
+    );
+    const error = await muxError(
+      createHerdrMux({ executable, runner: script.runner }).status(target()),
+      "conflict",
+    );
+
+    expect(error.details).toMatchObject({
+      field: "server.socket",
+      actual: liveSocket,
+    });
+    expect(script.invocations).toHaveLength(2);
+  });
+
+  test("accepts a legacy V1 target only on the default server namespace", async () => {
+    const defaultScript = scripted(ok(statusPayload()), ok(liveSnapshot()));
+    await expect(
+      createHerdrMux({ executable, runner: defaultScript.runner }).status(
+        legacyTarget(),
+      ),
+    ).resolves.toMatchObject({ state: "running", target: legacyTarget() });
+
+    const namedScript = scripted(ok(statusPayload()));
+    const error = await muxError(
+      createHerdrMux({
+        executable,
+        session: namedSession,
+        runner: namedScript.runner,
+      }).status(legacyTarget()),
+      "conflict",
+    );
+    expect(error.details).toMatchObject({
+      field: "server.session",
+      actual: namedSession,
+    });
+    expect(namedScript.invocations).toHaveLength(0);
+
+    const mutationScript = scripted(ok(statusPayload()), ok(liveSnapshot()));
+    await muxError(
+      createHerdrMux({ executable, runner: mutationScript.runner }).close(
+        legacyTarget(),
+      ),
+      "incompatible",
+    );
+    expect(
+      mutationScript.invocations.filter(
+        (invocation) =>
+          invocation.args[2] === "workspace" && invocation.args[3] === "close",
+      ),
+    ).toHaveLength(0);
   });
 
   test("rejects relative launcher provenance and incompatible servers", async () => {
@@ -250,7 +415,12 @@ describe("Herdr Windows mux adapter", () => {
       kind: "one",
       target: target(),
     });
-    expect(script.invocations[1]?.args).toEqual(["api", "snapshot"]);
+    expect(script.invocations[1]?.args).toEqual([
+      "--session",
+      "default",
+      "api",
+      "snapshot",
+    ]);
   });
 
   test("returns none or all candidates without using display numbers as identity", async () => {
@@ -324,6 +494,8 @@ describe("Herdr Windows mux adapter", () => {
       executable,
       shell: false,
       args: [
+        "--session",
+        "default",
         "workspace",
         "create",
         "--cwd",
@@ -364,7 +536,7 @@ describe("Herdr Windows mux adapter", () => {
     await expect(
       mux.ensure({ logicalKey: "S1", canonicalCwd: cwd }),
     ).resolves.toEqual({ target: target(), disposition: "recovered" });
-    expect(script.invocations.map((invocation) => invocation.args.slice(0, 2))).toEqual([
+    expect(script.invocations.map((invocation) => invocation.args.slice(2, 4))).toEqual([
       ["status", "--json"],
       ["api", "snapshot"],
       ["workspace", "create"],
@@ -412,7 +584,7 @@ describe("Herdr Windows mux adapter", () => {
       mux.ensure({ logicalKey: "S1", canonicalCwd: cwd }),
     ).resolves.toEqual({ target: target(), disposition: "recovered" });
     expect(
-      script.invocations.filter((call) => call.args[0] === "workspace"),
+      script.invocations.filter((call) => call.args[2] === "workspace"),
     ).toHaveLength(1);
   });
 
@@ -438,7 +610,7 @@ describe("Herdr Windows mux adapter", () => {
     await expect(
       mux.ensure({ logicalKey: "S1", canonicalCwd: cwd }),
     ).resolves.toMatchObject({ disposition: "created" });
-    expect(script.invocations.map((call) => call.args.slice(0, 2))).toEqual([
+    expect(script.invocations.map((call) => call.args.slice(2, 4))).toEqual([
       ["status", "--json"],
       ["api", "snapshot"],
       ["workspace", "create"],
@@ -523,7 +695,7 @@ describe("Herdr Windows mux adapter", () => {
     });
     expect(script.invocations[2]).toEqual({
       executable,
-      args: ["workspace", "focus", "wA"],
+      args: ["--session", "default", "workspace", "focus", "wA"],
       shell: false,
     });
   });
@@ -560,7 +732,7 @@ describe("Herdr Windows mux adapter", () => {
     });
     expect(
       script.invocations.filter(
-        (call) => call.args[0] === "workspace" && call.args[1] === "close",
+        (call) => call.args[2] === "workspace" && call.args[3] === "close",
       ),
     ).toHaveLength(2);
   });
