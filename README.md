@@ -12,11 +12,13 @@ Windows CI and a real Claude Code invocation have both passed. Stage 0 remains a
 prerelease because its original process-level latency targets were measured and missed;
 the evidence and release verdict are retained under [`docs/qualification`](docs/qualification/README.md).
 
-The `v0.2.0-alpha.1` line implements the first Stage 1 native Windows slice: create or
-recover a Herdr workspace for an existing Dispatch session, inspect it across process
-boundaries, focus it, and close it through a versioned server-issued receipt. This is a
-lifecycle slice, not the complete Stage 1 gate: private prompt delivery, layouts, restart
-qualification, and sustained daily use remain open.
+The `v0.2.0-alpha.2` candidate extends the first Stage 1 native Windows slice with an
+explicit Herdr server namespace, conservative alpha.1 receipt migration, and authorized
+cold-restart recovery. Clean source commit `51943d7` passed five isolated stop/start
+cycles on native Windows: Herdr restored the workspace/tab/pane/cwd shape, Dispatch
+durably linked each replacement terminal generation before reuse, and a fresh command
+ran after every restart. This remains an alpha slice: private prompt delivery, layouts,
+concurrent mutation stress, and sustained daily use remain open.
 
 ## Requirements
 
@@ -98,26 +100,38 @@ For an existing active Dispatch session:
 .\dist\dsp.exe open <sid>
 .\dist\dsp.exe status <sid>
 .\dist\dsp.exe open <sid>       # focuses the same target; does not duplicate it
+.\dist\dsp.exe open <sid> --recover-restored-terminal # only after a witnessed cold restart
 .\dist\dsp.exe close <sid>
 .\dist\dsp.exe remove <sid>     # separately removes the Git worktree
 ```
 
 `open` gives an existing server-issued receipt priority and reconnects that exact target.
-Only when no receipt exists, or that target is confirmed absent, does it reconcile the
-deterministic `dispatch:<sid>` label plus canonical worktree path. Herdr's workspace, tab,
-pane, and terminal IDs are persisted in `session.opened`; display numbers are never
-identity. `status` is read-only and reports the Dispatch lifecycle separately from the
-live mux state.
+V2 receipts bind the Herdr session name and absolute socket as well as workspace, tab,
+pane, terminal, and canonical cwd. Only when no receipt exists, or that target is
+confirmed absent, does Dispatch reconcile the deterministic `dispatch:<sid>` label plus
+canonical worktree path. Display numbers are never identity. `status` is read-only and
+reports the Dispatch lifecycle separately from the live mux state.
 
-`close` durably adopts any recovered target before mutation, preflight-verifies the full
+Herdr cold restart restores the workspace/tab/pane/cwd shape but replaces the pane
+process and terminal ID. Normal `open`, `status`, and `close` treat that as an identity
+conflict. After independently witnessing the restart, the operator may use
+`--recover-restored-terminal` on `open` or `close`. Dispatch accepts exactly one matching
+server/workspace/tab/pane/cwd shape with a different terminal ID, appends a
+`restored_terminal` receipt linking the previous and new full targets, and only then
+focuses or closes. The flag is authorization, not automatic restart detection.
+
+`close` durably records an unreceipted target before mutation, preflight-verifies the full
 target generation, closes its opaque workspace ID, and then records a target-specific
-terminal `session.closed`. A completed close is ledger-idempotent even when Herdr is
-offline. Herdr has no atomic snapshot fence between preflight and mutation, so concurrent
-server-side ID reuse remains an explicit alpha falsification risk rather than an atomic
-close guarantee. Reopening that Dispatch session is intentionally forbidden.
+terminal `session.closed`. A conflicting terminal generation is rejected unless the
+explicit recovery flag is present. A completed close is ledger-idempotent even when
+Herdr is offline. Herdr has no atomic snapshot fence between preflight and mutation, so
+concurrent server-side ID reuse remains an explicit alpha falsification risk rather than
+an atomic close guarantee. Reopening that Dispatch session is intentionally forbidden.
 
 If Herdr is not on `PATH`, set `DISPATCH_HERDR_BIN` to the absolute `herdr.exe` path for
-the invocation. Prompting is deliberately absent: passing prompt text to `herdr agent
+the invocation. Set `DISPATCH_HERDR_SESSION` to select a named Herdr session; the default
+is `default`, and a persisted V2 receipt must match the selected live session and socket.
+Prompting is deliberately absent: passing prompt text to `herdr agent
 prompt` would expose it in process argv. A later raw named-pipe increment must solve that
 without weakening unknown-outcome handling.
 
@@ -139,6 +153,26 @@ idempotency, external-close recovery to a new generation, terminal close, focus
 restoration, protocol `18`, and stable Dispatch/Herdr executable hashes. The default
 profile exercises only open/status and deliberately does not claim complete lifecycle
 coverage.
+
+For the isolated five-cycle cold-restart profile, use a second fresh Dispatch session and
+an output path outside the clean source tree:
+
+```powershell
+$created = .\dist\dsp.exe new "Stage 1 restart qualification" `
+  --repo (Get-Location).Path --json | ConvertFrom-Json
+bun run scripts/qualify-windows-restart.ts --binary .\dist\dsp.exe `
+  --herdr "C:\absolute\path\to\herdr.exe" --sid $created.sid `
+  --herdr-session-prefix dispatch-restart --cycles 5 `
+  --output (Join-Path $env:TEMP "dispatch-stage1-restart.json")
+.\dist\dsp.exe remove $created.sid
+```
+
+The harness appends a private 128-bit nonce to the supplied prefix, refuses an existing
+name, leaves the operator's default Herdr session untouched, and binds its output to the
+clean Git commit, qualifier hash, Bun `1.3.14`, and both executable hashes. It enables
+restored-terminal recovery only after observing stop, rejected socket API access, and a
+successful restart. Raw output includes local paths and the disposable SID; sanitize it
+before publication.
 
 ## Claude Code hooks
 
@@ -256,8 +290,9 @@ arch.md                    architecture specification v0.3
   compiled binary on native Windows x64, remote Windows/Linux CI, and a real Claude Code
   process. Its original latency targets remain missed and are an explicit prerelease
   exception rather than an unmeasured claim.
-- Stage 1: Herdr is selected and the server-receipted `open` / `status` / `close`
-  lifecycle slice is implemented. Prompt privacy, layouts, restart/resume stress, and the
+- Stage 1: Herdr is selected and the namespace-bound `open` / `status` / `close`
+  lifecycle plus five-cycle cold-restart recovery are implemented and locally qualified
+  on native Windows. Prompt privacy, layouts, concurrent mutation stress, and the
   two-week daily-driver displacement test remain open; Stage 1 is not complete.
 - Stage 2: only the filesystem probe harness exists; no provisioning engine ships before
   the O3 divergence-safety spike.
@@ -293,8 +328,9 @@ use.
   produced `agent.started`, `turn.started`, `turn.completed`, and `agent.stopped`; the
   sanitized exact-artifact receipt is attached to that release.
 - The Herdr lifecycle adapter requires protocol `18`. It fails closed on incompatible
-  protocol, duplicate label-and-cwd matches, target-generation conflicts, and outcomes
-  that remain unknown after a fresh snapshot and one safe retry.
+  protocol, server-namespace mismatch, duplicate label-and-cwd matches,
+  target-generation conflicts without explicit recovery authorization, and outcomes that
+  remain unknown after a fresh snapshot and one safe retry.
 - GitHub runners exercise the adapter against structured fakes, not an interactive Herdr
   server. Native compiled qualification and retained evidence are separate gates.
 - The clean local candidate at source commit `fff1f98` and the exact Windows artifact
@@ -304,6 +340,11 @@ use.
   [`v0.2.0-alpha.1` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.1),
   and its sanitized receipt is retained in
   [`stage1-release-runtime-evidence-004c0adf.json`](docs/qualification/stage1-release-runtime-evidence-004c0adf.json).
-- Stage 1 remains alpha: prompt transport, server restart/process resume, concurrent
-  focus-change stress, closed-workspace ID reuse stress, atomic snapshot-to-close
-  fencing, and sustained daily-driver proof remain open.
+- Clean local candidate `51943d7` passed the five-cycle isolated restart profile with
+  ledger sequences `3` through `8`, six distinct terminal generations, linked
+  `previousMuxTarget` provenance, responsive restored panes, stable default-session
+  checkpoints, and complete cleanup. See
+  [`stage1-windows-restart-51943d74.json`](docs/qualification/stage1-windows-restart-51943d74.json).
+- Stage 1 remains alpha: prompt transport, concurrent focus-change stress,
+  closed-workspace ID reuse stress, atomic snapshot-to-close fencing, release-artifact
+  rerun, and sustained daily-driver proof remain open.

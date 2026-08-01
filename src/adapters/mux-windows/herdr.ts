@@ -1,6 +1,7 @@
 import { isAbsolute, normalize, parse, win32 } from "node:path";
 
 import {
+  MUX_TARGET_LEGACY_VERSION,
   MUX_TARGET_VERSION,
   MuxError,
   type MuxCapabilities,
@@ -12,10 +13,12 @@ import {
   type MuxPort,
   type MuxStatus,
   type MuxTarget,
+  type MuxServerNamespace,
 } from "../../ports/mux";
 
 export const HERDR_PROTOCOL = 18;
 export const HERDR_LABEL_PREFIX = "dispatch:";
+export const DEFAULT_HERDR_SESSION = "default";
 
 export interface HerdrProcessInvocation {
   readonly executable: string;
@@ -36,11 +39,13 @@ export type HerdrProcessRunner = (
 export interface HerdrMuxOptions {
   readonly executable?: string;
   readonly runner?: HerdrProcessRunner;
+  readonly session?: string;
 }
 
 type JsonRecord = Record<string, unknown>;
 
 interface HerdrSnapshot {
+  readonly server: MuxServerNamespace;
   readonly workspaces: readonly unknown[];
   readonly tabs: readonly unknown[];
   readonly panes: readonly unknown[];
@@ -277,9 +282,33 @@ function validateEnvironment(
   }
 }
 
+function validateSession(session: string): void {
+  if (
+    session.length === 0 ||
+    session.includes("\0") ||
+    /[\r\n]/.test(session)
+  ) {
+    throw new MuxError(
+      "invalid_response",
+      "Herdr session must be a non-empty single-line value.",
+      { session },
+    );
+  }
+}
+
+function requiredSession(
+  value: unknown,
+  path: string,
+  command: string,
+): string | null {
+  if (value === null) return null;
+  return requiredString(value, path, command);
+}
+
 function validateTarget(target: MuxTarget): void {
   if (
-    target.version !== MUX_TARGET_VERSION ||
+    (target.version !== MUX_TARGET_LEGACY_VERSION &&
+      target.version !== MUX_TARGET_VERSION) ||
     target.backend !== "herdr" ||
     target.protocol !== HERDR_PROTOCOL
   ) {
@@ -291,6 +320,40 @@ function validateTarget(target: MuxTarget): void {
         backend: target.backend,
         protocol: target.protocol,
       },
+    );
+  }
+  const expectedFields = target.version === MUX_TARGET_LEGACY_VERSION
+    ? [
+        "version",
+        "backend",
+        "protocol",
+        "workspaceId",
+        "tabId",
+        "paneId",
+        "terminalId",
+        "canonicalCwd",
+      ]
+    : [
+        "version",
+        "backend",
+        "protocol",
+        "server",
+        "workspaceId",
+        "tabId",
+        "paneId",
+        "terminalId",
+        "canonicalCwd",
+      ];
+  const expectedFieldSet = new Set(expectedFields);
+  const unexpectedFields = Object.keys(target).filter(
+    (field) => !expectedFieldSet.has(field),
+  );
+  const missingFields = expectedFields.filter((field) => !(field in target));
+  if (unexpectedFields.length > 0 || missingFields.length > 0) {
+    throw new MuxError(
+      "invalid_response",
+      "Persisted mux target has unexpected or missing fields.",
+      { unexpectedFields, missingFields },
     );
   }
   for (const [name, value] of Object.entries({
@@ -316,6 +379,45 @@ function validateTarget(target: MuxTarget): void {
       "Persisted mux target cwd must be absolute.",
       { canonicalCwd: target.canonicalCwd },
     );
+  }
+  if (target.version === MUX_TARGET_VERSION) {
+    if (!isRecord(target.server)) {
+      throw new MuxError(
+        "invalid_response",
+        "Persisted mux target server namespace must be an object.",
+      );
+    }
+    const serverFields = Object.keys(target.server);
+    if (
+      serverFields.length !== 2 ||
+      !serverFields.includes("session") ||
+      !serverFields.includes("socket")
+    ) {
+      throw new MuxError(
+        "invalid_response",
+        "Persisted mux target server namespace has unexpected or missing fields.",
+        { fields: serverFields },
+      );
+    }
+    const targetSession: unknown = target.server.session;
+    const targetSocket: unknown = target.server.socket;
+    if (
+      (targetSession !== null &&
+        (typeof targetSession !== "string" ||
+          targetSession.length === 0 ||
+          targetSession.includes("\0") ||
+          /[\r\n]/.test(targetSession))) ||
+      typeof targetSocket !== "string" ||
+      targetSocket.length === 0 ||
+      targetSocket.includes("\0") ||
+      (!isAbsolute(targetSocket) && !win32.isAbsolute(targetSocket))
+    ) {
+      throw new MuxError(
+        "invalid_response",
+        "Persisted mux target has an invalid Herdr server namespace.",
+        { server: target.server },
+      );
+    }
   }
 }
 
@@ -344,6 +446,7 @@ function targetConflict(
 export class HerdrMuxAdapter implements MuxPort {
   readonly #executable: string | null;
   readonly #runner: HerdrProcessRunner;
+  readonly #session: string;
 
   constructor(options: HerdrMuxOptions = {}) {
     const executable = options.executable ?? Bun.which("herdr");
@@ -356,6 +459,8 @@ export class HerdrMuxAdapter implements MuxPort {
     }
     this.#executable = executable;
     this.#runner = options.runner ?? defaultRunner;
+    this.#session = options.session ?? DEFAULT_HERDR_SESSION;
+    validateSession(this.#session);
   }
 
   async probe(): Promise<MuxCapabilities> {
@@ -420,6 +525,31 @@ export class HerdrMuxAdapter implements MuxPort {
       throw invalidResponse(command, "$.client.binary must be absolute.");
     }
 
+    const expectedSession = this.#session === DEFAULT_HERDR_SESSION
+      ? null
+      : this.#session;
+    const clientSession = requiredSession(
+      client.session,
+      "$.client.session",
+      command,
+    );
+    const serverSession = requiredSession(
+      server.session,
+      "$.server.session",
+      command,
+    );
+    if (clientSession !== expectedSession || serverSession !== expectedSession) {
+      throw new MuxError(
+        "conflict",
+        "Herdr resolved a different server session than Dispatch requested.",
+        { expectedSession, clientSession, serverSession },
+      );
+    }
+    const socket = requiredString(server.socket, "$.server.socket", command);
+    if (!isAbsolute(socket) && !win32.isAbsolute(socket)) {
+      throw invalidResponse(command, "$.server.socket must be absolute.");
+    }
+
     return {
       backend: "herdr",
       executable: this.#requiredExecutable(),
@@ -435,6 +565,7 @@ export class HerdrMuxAdapter implements MuxPort {
         command,
       ),
       protocol: HERDR_PROTOCOL,
+      server: { session: serverSession, socket },
       detachedServerDaemon: requiredBoolean(
         capabilities.detached_server_daemon,
         "$.server.capabilities.detached_server_daemon",
@@ -449,6 +580,13 @@ export class HerdrMuxAdapter implements MuxPort {
   }
 
   async discover(request: MuxDiscoveryRequest): Promise<MuxDiscovery> {
+    return (await this.#discoverWithServer(request)).discovery;
+  }
+
+  async #discoverWithServer(request: MuxDiscoveryRequest): Promise<{
+    readonly discovery: MuxDiscovery;
+    readonly server: MuxServerNamespace;
+  }> {
     validateDiscoveryRequest(request);
     const snapshot = await this.#snapshot();
     const command = "herdr api snapshot";
@@ -505,6 +643,7 @@ export class HerdrMuxAdapter implements MuxPort {
           version: MUX_TARGET_VERSION,
           backend: "herdr",
           protocol: HERDR_PROTOCOL,
+          server: snapshot.server,
           workspaceId,
           tabId,
           paneId: requiredString(
@@ -535,31 +674,41 @@ export class HerdrMuxAdapter implements MuxPort {
       }
     }
 
-    if (candidates.length === 0) return { kind: "none" };
+    if (candidates.length === 0) {
+      return { discovery: { kind: "none" }, server: snapshot.server };
+    }
     if (candidates.length === 1) {
       const target = candidates[0];
       if (!target) throw invalidResponse(command, "candidate disappeared.");
-      return { kind: "one", target };
+      return {
+        discovery: { kind: "one", target },
+        server: snapshot.server,
+      };
     }
-    return { kind: "ambiguous", candidates };
+    return {
+      discovery: { kind: "ambiguous", candidates },
+      server: snapshot.server,
+    };
   }
 
   async ensure(request: MuxEnsureRequest): Promise<MuxEnsureResult> {
     validateDiscoveryRequest(request);
     validateEnvironment(request.environment);
-    const discovery = await this.discover(request);
+    const { discovery, server } = await this.#discoverWithServer(request);
     if (discovery.kind === "one") {
       return { target: discovery.target, disposition: "recovered" };
     }
     if (discovery.kind === "ambiguous") {
       throw this.#ambiguous(request, discovery.candidates);
     }
-    return this.#createAndReconcile(request, true);
+    return this.#createAndReconcile(request, true, server);
   }
 
   async status(target: MuxTarget): Promise<MuxStatus> {
     validateTarget(target);
+    this.#assertConfiguredTargetServer(target);
     const snapshot = await this.#snapshot();
+    this.#assertTargetServer(target, snapshot.server);
     const command = "herdr api snapshot";
     const workspaces = snapshot.workspaces.filter(
       (value) => isRecord(value) && value.workspace_id === target.workspaceId,
@@ -629,6 +778,7 @@ export class HerdrMuxAdapter implements MuxPort {
   async reconnect(target: MuxTarget): Promise<MuxStatus> {
     const before = await this.status(target);
     if (before.state === "absent") return before;
+    this.#assertMutableTarget(target);
 
     let attempt = await this.#mutate([
       "workspace",
@@ -672,11 +822,12 @@ export class HerdrMuxAdapter implements MuxPort {
     if (before.state === "absent") {
       return { outcome: "already_absent", target };
     }
+    this.#assertMutableTarget(target);
     return this.#closeAndReconcile(target, true);
   }
 
   async #snapshot(): Promise<HerdrSnapshot> {
-    await this.probe();
+    const capabilities = await this.probe();
     const command = "herdr api snapshot";
     const envelope = requiredRecord(
       await this.#readJson(["api", "snapshot"]),
@@ -708,6 +859,7 @@ export class HerdrMuxAdapter implements MuxPort {
       );
     }
     return {
+      server: capabilities.server,
       workspaces: requiredArray(
         snapshot.workspaces,
         "$.result.snapshot.workspaces",
@@ -721,6 +873,7 @@ export class HerdrMuxAdapter implements MuxPort {
   async #createAndReconcile(
     request: MuxEnsureRequest,
     retryAllowed: boolean,
+    server: MuxServerNamespace,
   ): Promise<MuxEnsureResult> {
     const environment = {
       ...request.environment,
@@ -746,7 +899,7 @@ export class HerdrMuxAdapter implements MuxPort {
     if (attempt.kind === "success") {
       try {
         return {
-          target: this.#createdTarget(attempt.payload, request),
+          target: this.#createdTarget(attempt.payload, request, server),
           disposition: "created",
         };
       } catch (error) {
@@ -760,8 +913,11 @@ export class HerdrMuxAdapter implements MuxPort {
     }
 
     let discovery: MuxDiscovery;
+    let reconciledServer: MuxServerNamespace;
     try {
-      discovery = await this.discover(request);
+      const reconciled = await this.#discoverWithServer(request);
+      discovery = reconciled.discovery;
+      reconciledServer = reconciled.server;
     } catch (error) {
       throw this.#outcomeUnknown(
         "Could not reconcile Herdr workspace creation with a fresh snapshot.",
@@ -775,14 +931,20 @@ export class HerdrMuxAdapter implements MuxPort {
     if (discovery.kind === "ambiguous") {
       throw this.#ambiguous(request, discovery.candidates);
     }
-    if (retryAllowed) return this.#createAndReconcile(request, false);
+    if (retryAllowed) {
+      return this.#createAndReconcile(request, false, reconciledServer);
+    }
     throw this.#outcomeUnknown(
       "Herdr create outcome remained unknown after snapshot reconciliation and one safe retry.",
       attempt,
     );
   }
 
-  #createdTarget(payload: unknown, request: MuxEnsureRequest): MuxTarget {
+  #createdTarget(
+    payload: unknown,
+    request: MuxEnsureRequest,
+    server: MuxServerNamespace,
+  ): MuxTarget {
     const command = "herdr workspace create";
     const result = successResult(payload, command);
     if (result.type !== "workspace_created") {
@@ -848,6 +1010,7 @@ export class HerdrMuxAdapter implements MuxPort {
       version: MUX_TARGET_VERSION,
       backend: "herdr",
       protocol: HERDR_PROTOCOL,
+      server,
       workspaceId,
       tabId,
       paneId: requiredString(
@@ -1003,9 +1166,47 @@ export class HerdrMuxAdapter implements MuxPort {
   async #invoke(args: readonly string[]): Promise<HerdrProcessResult> {
     return this.#runner({
       executable: this.#requiredExecutable(),
-      args: [...args],
+      args: ["--session", this.#session, ...args],
       shell: false,
     });
+  }
+
+  #assertTargetServer(
+    target: MuxTarget,
+    server: MuxServerNamespace,
+  ): void {
+    if (target.version === MUX_TARGET_LEGACY_VERSION) {
+      if (server.session === null) return;
+      throw targetConflict(target, "server.session", server.session);
+    }
+    if (target.server.session !== server.session) {
+      throw targetConflict(target, "server.session", server.session);
+    }
+    if (target.server.socket !== server.socket) {
+      throw targetConflict(target, "server.socket", server.socket);
+    }
+  }
+
+  #assertConfiguredTargetServer(target: MuxTarget): void {
+    const expectedSession = this.#session === DEFAULT_HERDR_SESSION
+      ? null
+      : this.#session;
+    if (target.version === MUX_TARGET_LEGACY_VERSION) {
+      if (expectedSession === null) return;
+      throw targetConflict(target, "server.session", expectedSession);
+    }
+    if (target.server.session !== expectedSession) {
+      throw targetConflict(target, "server.session", expectedSession);
+    }
+  }
+
+  #assertMutableTarget(target: MuxTarget): void {
+    if (target.version === MUX_TARGET_VERSION) return;
+    throw new MuxError(
+      "incompatible",
+      "Legacy mux targets are read-only until Dispatch binds them to the current Herdr server namespace.",
+      { targetVersion: target.version },
+    );
   }
 
   #requiredExecutable(): string {

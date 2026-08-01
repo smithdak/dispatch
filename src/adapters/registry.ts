@@ -52,5 +52,6 @@ export async function loadMuxPort(
 
   const { createHerdrMux } = await import("./mux-windows/herdr");
   const executable = env.DISPATCH_HERDR_BIN;
-  return createHerdrMux(executable ? { executable } : {});
+  const session = env.DISPATCH_HERDR_SESSION ?? "default";
+  return createHerdrMux(executable ? { executable, session } : { session });
 }

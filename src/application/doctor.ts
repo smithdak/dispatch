@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { resolveDispatchPaths } from "../core/paths";
-import { MuxError } from "../ports/mux";
+import { MuxError, type MuxServerNamespace } from "../ports/mux";
 
 export type DoctorCheckStatus = "ok" | "warn" | "fail";
 
@@ -14,6 +14,7 @@ export interface DoctorCheck {
 export interface DoctorReport {
   readonly readyForStage0: boolean;
   readonly readyForStage1: boolean;
+  readonly herdrServer: MuxServerNamespace | null;
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -104,15 +105,17 @@ export async function diagnose(): Promise<DoctorReport> {
   });
 
   let herdrReady = false;
+  let herdrServer: MuxServerNamespace | null = null;
   if (process.platform === "win32" && process.arch === "x64") {
     try {
       const { loadMuxPort } = await import("../adapters/registry");
       const capabilities = await (await loadMuxPort()).probe();
       herdrReady = true;
+      herdrServer = capabilities.server;
       checks.push({
         name: "herdr",
         status: "ok",
-        detail: `${capabilities.clientVersion}; protocol ${capabilities.protocol}; detached server ${capabilities.detachedServerDaemon ? "available" : "unavailable"}`,
+        detail: `${capabilities.clientVersion}; protocol ${capabilities.protocol}; session ${capabilities.server.session ?? "default"}; detached server ${capabilities.detachedServerDaemon ? "available" : "unavailable"}`,
       });
     } catch (error) {
       checks.push({
@@ -150,6 +153,7 @@ export async function diagnose(): Promise<DoctorReport> {
   return {
     readyForStage0,
     readyForStage1: readyForStage0 && herdrReady,
+    herdrServer,
     checks,
   };
 }

@@ -40,9 +40,10 @@ Herdr is the first `mux-windows` adapter. The adapter invokes one resolved absol
 - protocol `18` for this initial adapter revision;
 - structured JSON responses for successful commands.
 
-The port uses server-issued receipts, not derived IDs. A persisted target is versioned
-and contains at least the Herdr protocol, workspace ID, tab ID, root pane ID, terminal
-ID, and canonical cwd. Display numbers are never identity.
+The port uses server-issued receipts, not derived IDs. A persisted V2 target is versioned
+and contains the Herdr session and socket namespace, protocol, workspace ID, tab ID,
+root pane ID, terminal ID, and canonical cwd. Display numbers are never identity. ADR
+0004 adds the namespace and explicit restored-terminal transition contract.
 
 An already receipted target is authoritative: `open` checks and reconnects that exact
 generation before consulting mutable correlation fields. A conflict fails closed. Only
@@ -75,9 +76,9 @@ full Stage 1 gate.
 The first command surface is deliberately narrow:
 
 ```text
-dsp open <sid> [--json]
+dsp open <sid> [--recover-restored-terminal] [--json]
 dsp status <sid> [--json]
-dsp close <sid> [--json]
+dsp close <sid> [--recover-restored-terminal] [--json]
 ```
 
 `open` creates or focuses a shell workspace for the existing Dispatch worktree. `status`
@@ -139,7 +140,8 @@ keeps this transport replaceable.
   desktop behavior. An alpha candidate's `full_lifecycle` native profile must start from a
   fresh `created` / `not_recorded` session and retain create, cross-process status/focus,
   external-close recovery, preflight-verified ID-addressed close, focus restoration, and
-  stable executable hashes. Restart evidence remains a separate full Stage 1 gate.
-- Full Stage 1 remains gated on prompt privacy, five restart/resume cycles, focus-change
-  stress, closed-ID generation checks, and two weeks of daily use. This slice must not be
-  represented as satisfying that dogfood gate.
+  stable executable hashes. Restart evidence remains a separate qualification profile.
+- Clean local candidate `51943d7` subsequently passed five isolated cold-restart cycles
+  under ADR 0004. Full Stage 1 remains gated on prompt privacy, focus-change stress,
+  closed-ID generation checks, exact release-artifact qualification, and two weeks of
+  daily use. This slice must not be represented as satisfying that dogfood gate.
