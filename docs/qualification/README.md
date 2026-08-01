@@ -154,3 +154,12 @@ qualifier, Herdr executable, source commit, and Bun runtime; records ledger sequ
 branch, and named Herdr namespace were removed. It is local compiled-candidate evidence,
 not downloaded release-artifact, prompt-privacy, continuous concurrent-mutation, native
 agent-conversation restore, or daily-driver evidence.
+
+[`stage1-release-runtime-evidence-43fb9766.json`](stage1-release-runtime-evidence-43fb9766.json)
+is the sanitized receipt for the exact Windows artifact downloaded from successful main
+[CI run 30677442194](https://github.com/smithdak/dispatch/actions/runs/30677442194)
+at merge commit `43fb976`. The same bytes are attached to the
+[`v0.2.0-alpha.2` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.2).
+It closes the exact-artifact five-cycle restart gate, not prompt privacy, native agent
+conversation restore, concurrent focus-change or closed-ID reuse stress, an atomic
+full-generation mutation fence, or sustained daily-driver proof.

@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-01T01:23:40.730Z",
+  "qualificationGeneratedAt": "2026-08-01T01:18:10.697Z",
+  "verdict": "pass",
+  "profile": "five_cycle_cold_restart",
+  "completeFiveCycleGate": true,
+  "scope": "native-windows-isolated-herdr-restart-resume",
+  "artifactKind": "github-actions-main-artifact",
+  "source": {
+    "commit": "43fb9766c0ab252a47a610f37b3d3e4a2a12bdff",
+    "branch": "main",
+    "cleanBeforeAndAfterQualification": true,
+    "ciRun": "https://github.com/smithdak/dispatch/actions/runs/30677442194",
+    "windowsJob": "https://github.com/smithdak/dispatch/actions/runs/30677442194/job/91307488955",
+    "ubuntuJob": "https://github.com/smithdak/dispatch/actions/runs/30677442194/job/91307488997",
+    "ciConclusion": "success",
+    "qualifierSha256": "5ff6a9e6b986f473cde9f43de13fc96a08840a258dc7a80a5183625884da4d9e"
+  },
+  "artifacts": {
+    "windows": {
+      "actionsArtifactId": 8810988379,
+      "actionsArtifactName": "dispatch-windows-latest",
+      "actionsArchiveSha256": "2fb3313c0d534af63c4cc5abcff9686bd33f0e8eb28ad7d2a8aeaff77dcbd3ac",
+      "releaseAssetName": "dsp-windows-x64.exe",
+      "executableSha256": "0b22b5ae3955052e927f2b6eb91321526c57a7ff8d5ec3a805643d8451e57b92"
+    },
+    "linux": {
+      "actionsArtifactId": 8810979688,
+      "actionsArtifactName": "dispatch-ubuntu-latest",
+      "actionsArchiveSha256": "0d0334eca6d1a40a25502beb2aa98bec176dcec1d8fea05eb369a757c572cfe6",
+      "releaseAssetName": "dsp-linux-x64",
+      "executableSha256": "8f1d06c03815f6d001a6ab8f1b810a8188b2c439e4ccc31b2844b46f96aa5e46"
+    }
+  },
+  "platform": {
+    "os": "win32",
+    "architecture": "x64"
+  },
+  "dispatch": {
+    "version": "0.2.0-alpha.2",
+    "embeddedBun": "1.3.14",
+    "stage0DoctorReady": true,
+    "stage1DoctorReady": true
+  },
+  "herdr": {
+    "version": "0.7.5-preview.2026-07-29-44b3adb12552",
+    "protocol": 18,
+    "sha256": "d0179e4673f944d9ac12174da0a533ea34a7cc5ee555dba208ffc4131fc38f4d",
+    "compatible": true,
+    "detachedServerDaemon": true,
+    "isolatedNamedSession": "redacted-prefix-plus-128-bit-nonce",
+    "defaultStateFingerprint": "929aa768775127412846b9a618b543679594623a6febad54c41cd00e765f1451"
+  },
+  "observations": {
+    "initial": {
+      "ledgerSeq": 3,
+      "action": "created",
+      "workspaceShape": "one stable workspace, tab, root pane, and canonical cwd"
+    },
+    "cycles": [
+      {
+        "cycle": 1,
+        "beforeLedgerSeq": 3,
+        "afterLedgerSeq": 4,
+        "stopConfirmed": true,
+        "socketApiRejected": true,
+        "restartReady": true,
+        "workspaceShapeStable": true,
+        "terminalGenerationAdvanced": true,
+        "terminalResponsive": true,
+        "defaultCheckpointMatched": true
+      },
+      {
+        "cycle": 2,
+        "beforeLedgerSeq": 4,
+        "afterLedgerSeq": 5,
+        "stopConfirmed": true,
+        "socketApiRejected": true,
+        "restartReady": true,
+        "workspaceShapeStable": true,
+        "terminalGenerationAdvanced": true,
+        "terminalResponsive": true,
+        "defaultCheckpointMatched": true
+      },
+      {
+        "cycle": 3,
+        "beforeLedgerSeq": 5,
+        "afterLedgerSeq": 6,
+        "stopConfirmed": true,
+        "socketApiRejected": true,
+        "restartReady": true,
+        "workspaceShapeStable": true,
+        "terminalGenerationAdvanced": true,
+        "terminalResponsive": true,
+        "defaultCheckpointMatched": true
+      },
+      {
+        "cycle": 4,
+        "beforeLedgerSeq": 6,
+        "afterLedgerSeq": 7,
+        "stopConfirmed": true,
+        "socketApiRejected": true,
+        "restartReady": true,
+        "workspaceShapeStable": true,
+        "terminalGenerationAdvanced": true,
+        "terminalResponsive": true,
+        "defaultCheckpointMatched": true
+      },
+      {
+        "cycle": 5,
+        "beforeLedgerSeq": 7,
+        "afterLedgerSeq": 8,
+        "stopConfirmed": true,
+        "socketApiRejected": true,
+        "restartReady": true,
+        "workspaceShapeStable": true,
+        "terminalGenerationAdvanced": true,
+        "terminalResponsive": true,
+        "defaultCheckpointMatched": true
+      }
+    ],
+    "ledgerProvenance": {
+      "openedSequenceRange": [3, 8],
+      "initialAction": "created",
+      "restoredActions": 5,
+      "restoredActionValue": "restored_terminal",
+      "eachPreviousTargetLinkedExactly": true,
+      "verifiedByIndependentPostRunLogRead": true
+    }
+  },
+  "cleanup": {
+    "terminalCloseConfirmed": true,
+    "nonceNamedHerdrSessionStoppedAndDeleted": true,
+    "onlyDefaultHerdrSessionRemains": true,
+    "defaultHerdrSessionRunning": true,
+    "defaultCheckpointMatched": true,
+    "qualificationWorktreeAbsentAfterRun": true,
+    "qualificationBranchVerifiedAtSourceCommitThenDeleted": true,
+    "errors": []
+  },
+  "methodLimits": [
+    "The Windows receipt qualifies the exact downloaded GitHub Actions artifact; the Linux companion received CI and compiled Stage 0 qualification only.",
+    "Cold restart restores workspace, tab, pane, cwd, and responsiveness; it intentionally replaces the original pane process and does not prove PID continuity.",
+    "Pane screen-history replay was not enabled because it can persist secrets, prompts, tokens, commands, and output.",
+    "No agent prompt was submitted and no native agent-conversation restore was exercised.",
+    "Herdr exposes a stable session socket but no server-incarnation token, so adversarial state reset plus opaque-ID reuse is not cryptographically excluded.",
+    "Herdr focus and close accept workspace IDs without a conditional full-generation token, leaving a bounded preflight-to-mutation race.",
+    "The 128-bit nonce makes accidental session-name collision negligible; Herdr exposes no serving-process ownership token against an adversarial local claimant.",
+    "Concurrent focus-change stress, closed-workspace ID reuse stress, prompt privacy, and sustained daily-driver qualification remain open."
+  ]
+}
