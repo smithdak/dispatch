@@ -12,13 +12,14 @@ Windows CI and a real Claude Code invocation have both passed. Stage 0 remains a
 prerelease because its original process-level latency targets were measured and missed;
 the evidence and release verdict are retained under [`docs/qualification`](docs/qualification/README.md).
 
-The `v0.2.0-alpha.2` candidate extends the first Stage 1 native Windows slice with an
-explicit Herdr server namespace, conservative alpha.1 receipt migration, and authorized
-cold-restart recovery. Clean source commit `51943d7` passed five isolated stop/start
-cycles on native Windows: Herdr restored the workspace/tab/pane/cwd shape, Dispatch
-durably linked each replacement terminal generation before reuse, and a fresh command
-ran after every restart. This remains an alpha slice: private prompt delivery, layouts,
-concurrent mutation stress, and sustained daily use remain open.
+The [`v0.2.0-alpha.2` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.2)
+extends the first Stage 1 native Windows slice with an explicit Herdr server namespace,
+conservative alpha.1 receipt migration, and authorized cold-restart recovery. The exact
+Windows artifact from main commit `43fb976` passed five isolated stop/start cycles:
+Herdr restored the workspace/tab/pane/cwd shape, Dispatch durably linked each replacement
+terminal generation before reuse, and a fresh command ran after every restart. This
+remains an alpha slice: private prompt delivery, layouts, concurrent mutation stress,
+native agent-conversation restore, and sustained daily use remain open.
 
 ## Requirements
 
@@ -291,9 +292,10 @@ arch.md                    architecture specification v0.3
   process. Its original latency targets remain missed and are an explicit prerelease
   exception rather than an unmeasured claim.
 - Stage 1: Herdr is selected and the namespace-bound `open` / `status` / `close`
-  lifecycle plus five-cycle cold-restart recovery are implemented and locally qualified
-  on native Windows. Prompt privacy, layouts, concurrent mutation stress, and the
-  two-week daily-driver displacement test remain open; Stage 1 is not complete.
+  lifecycle plus five-cycle cold-restart recovery are implemented and qualified against
+  the exact published Windows artifact. Prompt privacy, layouts, concurrent mutation
+  stress, native agent-conversation restore, and the two-week daily-driver displacement
+  test remain open; Stage 1 is not complete.
 - Stage 2: only the filesystem probe harness exists; no provisioning engine ships before
   the O3 divergence-safety spike.
 - Stage 3: merge outcomes and a basic history skill exist; review handoff and richer
@@ -345,6 +347,12 @@ use.
   `previousMuxTarget` provenance, responsive restored panes, stable default-session
   checkpoints, and complete cleanup. See
   [`stage1-windows-restart-51943d74.json`](docs/qualification/stage1-windows-restart-51943d74.json).
+- The exact Windows artifact from
+  [main CI run 30677442194](https://github.com/smithdak/dispatch/actions/runs/30677442194)
+  at merge commit `43fb976` passed the same five-cycle profile. Those bytes are attached
+  to the [`v0.2.0-alpha.2` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.2),
+  and the sanitized receipt is retained in
+  [`stage1-release-runtime-evidence-43fb9766.json`](docs/qualification/stage1-release-runtime-evidence-43fb9766.json).
 - Stage 1 remains alpha: prompt transport, concurrent focus-change stress,
-  closed-workspace ID reuse stress, atomic snapshot-to-close fencing, release-artifact
-  rerun, and sustained daily-driver proof remain open.
+  closed-workspace ID reuse stress, atomic snapshot-to-close fencing, native
+  agent-conversation restore, and sustained daily-driver proof remain open.

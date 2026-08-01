@@ -99,3 +99,15 @@ state reset followed by adversarial ID reuse.
   local claimant is not cryptographically excluded.
 - Prompt privacy, concurrent focus/change stress, closed-ID reuse stress, exact release
   artifact qualification, and sustained daily-driver proof remain open Stage 1 gates.
+
+## Qualification update — 2026-08-01
+
+The exact Windows artifact produced by successful main CI at merge commit `43fb976`
+passed the five-cycle cold-restart profile. Its SHA-256 is
+`0b22b5ae3955052e927f2b6eb91321526c57a7ff8d5ec3a805643d8451e57b92`; those bytes and
+the sanitized receipt are attached to the
+[`v0.2.0-alpha.2` prerelease](https://github.com/smithdak/dispatch/releases/tag/v0.2.0-alpha.2).
+This closes only the exact release-artifact qualification gate. Prompt privacy, native
+agent-conversation restore, concurrent focus/change stress, closed-ID reuse stress,
+server-incarnation proof, atomic full-generation mutation fencing, and sustained
+daily-driver proof remain open.
